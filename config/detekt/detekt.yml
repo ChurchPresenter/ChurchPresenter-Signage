@@ -1,0 +1,191 @@
+build:
+  maxIssues: 0
+
+console-reports:
+  active: true
+
+comments:
+  active: false
+
+style:
+  WildcardImport:
+    active: true
+    excludeImports: []
+  UnusedImports:
+    active: true
+  ForbiddenImport:
+    active: true
+    forbiddenPatterns: 'androidx\.compose\.material\.(?!icons)'
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+    excludePackageStatements: true
+    excludeImportStatements: true
+    excludeCommentStatements: false
+  MagicNumber:
+    active: true
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: true
+    ignoreAnnotation: true
+    ignoreEnums: true
+    ignoreRanges: true
+  ReturnCount:
+    active: true
+    max: 3
+    excludeGuardClauses: true
+  LoopWithTooManyJumpStatements:
+    active: true
+  UnusedPrivateMember:
+    active: true
+
+complexity:
+  LongMethod:
+    active: true
+    threshold: 100
+  LongParameterList:
+    active: true
+    functionThreshold: 6
+    constructorThreshold: 7
+    ignoreDefaultParameters: true
+    ignoreAnnotated: ['Composable']
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 11
+    thresholdInClasses: 11
+    thresholdInInterfaces: 11
+    thresholdInObjects: 11
+    thresholdInEnums: 11
+    ignoreDeprecated: false
+    ignorePrivate: false
+    ignoreOverridden: true
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 20
+    ignoreAnnotated: ['Composable']
+    ignoreSingleWhenExpression: true
+    ignoreSimpleWhenEntries: true
+  LargeClass:
+    active: true
+    threshold: 1000
+  NestedBlockDepth:
+    active: true
+    ignoreAnnotated: ['Composable']
+
+naming:
+  TopLevelPropertyNaming:
+    active: true
+  VariableNaming:
+    active: true
+    variablePattern: '(_)?[a-z][A-Za-z0-9]*|[A-Z][A-Z0-9_]*'
+    privateVariablePattern: '(_)?[a-z][A-Za-z0-9]*|[A-Z][A-Z0-9_]*'
+  FunctionParameterNaming:
+    active: true
+    parameterPattern: '(_)?[a-z][A-Za-z0-9]*'
+  ConstructorParameterNaming:
+    active: true
+    parameterPattern: '(_)?[a-z][A-Za-z0-9]*'
+    privateParameterPattern: '(_)?[a-z][A-Za-z0-9]*'
+
+  FunctionNaming:
+    active: true
+    ignoreAnnotated: ['Composable']
+  MatchingDeclarationName:
+    active: true
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: true
+  SwallowedException:
+    active: true
+  TooGenericExceptionThrown:
+    active: true
+
+performance:
+  SpreadOperator:
+    active: true
+
+# detekt-formatting (ktlint), added to every module from the root build. Every rule that is on is
+# clean and auto-correctable: `./gradlew detekt --auto-correct` fixes what it finds.
+#
+# Deliberately OFF -- each would rewrite a large share of the tree (findings measured 2026-10-09):
+#   Indentation 6430 -- most of it the server's route files, whose bodies sit around raw-string
+#     HTML/JS where the indentation is load-bearing; ArgumentListWrapping 5084; Wrapping 3027;
+#   ImportOrdering 1352; MultiLineIfElse 1049; NoMultipleSpaces 1032 (aligned tables and comments);
+#   ParameterListWrapping 141; AnnotationOnSeparateLine 108; TrailingCommaOnCallSite and
+#   TrailingCommaOnDeclarationSite; Filename 4 (each needs a rename);
+#   MaximumLineLength -- detekt's own MaxLineLength (style:) is the one in force.
+formatting:
+  active: true
+  autoCorrect: true
+  Indentation:
+    active: false
+  ArgumentListWrapping:
+    active: false
+  Wrapping:
+    active: false
+  ImportOrdering:
+    active: false
+  MultiLineIfElse:
+    active: false
+  NoMultipleSpaces:
+    active: false
+  ParameterListWrapping:
+    active: false
+  AnnotationOnSeparateLine:
+    active: false
+  TrailingCommaOnCallSite:
+    active: false
+  TrailingCommaOnDeclarationSite:
+    active: false
+  Filename:
+    active: false
+  MaximumLineLength:
+    active: false
+  FinalNewline:
+    active: true
+  NoTrailingSpaces:
+    active: true
+  NoConsecutiveBlankLines:
+    active: true
+  NoWildcardImports:
+    active: true
+  NoUnusedImports:
+    active: true
+  NoSemicolons:
+    active: true
+  NoBlankLineBeforeRbrace:
+    active: true
+  NoEmptyFirstLineInMethodBlock:
+    active: true
+  NoBlankLinesInChainedMethodCalls:
+    active: true
+  SpacingAroundKeyword:
+    active: true
+  SpacingAroundCurly:
+    active: true
+  SpacingAroundParens:
+    active: true
+  SpacingAroundOperators:
+    active: true
+  SpacingAroundComma:
+    active: true
+  SpacingBetweenDeclarationsWithComments:
+    active: true
+  SpacingBetweenDeclarationsWithAnnotations:
+    active: true
+  ModifierListSpacing:
+    active: true
+  AnnotationSpacing:
+    active: true
+  FunctionStartOfBodySpacing:
+    active: true
+  StringTemplate:
+    active: true
+  PropertyWrapping:
+    active: true
+  UnnecessaryParenthesesBeforeTrailingLambda:
+    active: true
+
+# The build's own rules, from :detekt-rules. BlockingCallOnEventThread keeps disk, network, decodes
+# and sleeps out of composition on the output paths (AGENT.md, "Live-safe output paths"); a call
+# that must stay is a line of config/architecture/live-safe-allowed.txt, with its reason.
