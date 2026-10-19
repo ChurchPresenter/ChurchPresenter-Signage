@@ -20,6 +20,15 @@ The agent's logic takes its clock, CEC and content source as parameters; tests u
 **CEC rule:** send only when the wanted power changes; never power-on on the first decision after
 start; never anything in a Service block. A TV on another HDMI input must never be pulled away.
 
+## Install and release
+- `install/install.sh` (Pi and Linux mini PCs: cage + Chromium kiosk, systemd units, sudoers rule for
+  the kiosk restart) and `install/install.ps1` (Windows: scheduled tasks, Edge kiosk). The README's
+  copy-paste commands fetch them from `releases/latest/download/`, so renaming either breaks every
+  README link and every update.
+- `.github/workflows/release.yml` runs on a `v*` tag that matches `AGENT_VERSION`: one bundle per
+  platform (installDist + a jlinked runtime), each smoke-started, then `SHA256SUMS` and a release.
+- Not yet: signing (phase 3) and the read-only system disk.
+
 ## The wire format is a contract
 ChurchPresenter keeps its **own copy** of the wire types (as ChurchPresenter-Mobile does for the
 companion API); nothing is published as a library. So:
