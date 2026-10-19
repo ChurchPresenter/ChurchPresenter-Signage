@@ -1,5 +1,7 @@
 rootProject.name = "churchpresenter-signage"
 
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
@@ -7,3 +9,4 @@ dependencyResolutionManagement {
 }
 
 include(":core")
+include(":agent")

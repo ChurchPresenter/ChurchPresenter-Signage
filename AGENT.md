@@ -12,7 +12,13 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` (next) | The player: sync, local store, kiosk server, CEC, updates |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), the kiosk page and its local server, CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+
+The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
+(`Fixtures.kt`) and never a real socket except `KioskServerTest`'s in-process Ktor host.
+
+**CEC rule:** send only when the wanted power changes; never power-on on the first decision after
+start; never anything in a Service block. A TV on another HDMI input must never be pulled away.
 
 ## The wire format is a contract
 ChurchPresenter keeps its **own copy** of the wire types (as ChurchPresenter-Mobile does for the
@@ -39,6 +45,8 @@ names in signatures, KDoc on public API.
 
 ## Commands
 ```bash
-./gradlew :core:test :core:detekt   # the core's suite and gate — run detekt last
+./gradlew :core:test :agent:test detekt   # both suites and the gate — run detekt last
+./gradlew :agent:installDist             # agent/build/install/churchpresenter-signage/bin/…
+# run locally: …/bin/churchpresenter-signage --data /tmp/sig --no-cec --kiosk-port 18090, open http://127.0.0.1:18090
 ./gradlew detekt --auto-correct     # fixes formatting findings
 ```
