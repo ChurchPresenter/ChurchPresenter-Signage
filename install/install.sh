@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Installs the ChurchPresenter signage player on a Raspberry Pi (Raspberry Pi OS Lite, 64-bit) or a
-# Linux mini PC (Debian or Ubuntu Server, minimal). Run it as root on a fresh system:
+# Linux mini PC (Debian or Ubuntu Server, minimal, no desktop). Run it as root on a fresh system:
 #
 #   curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash
 #
-# It installs Chromium, the cage kiosk compositor and the CEC tools, the agent with its own Java
-# runtime, and two services: the agent, and the kiosk browser on the first screen. Then it reboots to
-# the pairing screen. Run it again to update; the player's pairing and content are kept.
+# It installs a browser (Chromium; on Ubuntu, whose Chromium is a snap that cannot run as a kiosk,
+# Firefox from Mozilla's own packages), the cage kiosk compositor and the CEC tools, the agent with
+# its own Java runtime, and two services: the agent, and the kiosk browser on the first screen. Then
+# it reboots to the pairing screen. Run it again to update; the player's pairing and content are kept.
 #
 # Options (after `bash -s --` when piped):  --address host:port   use this ChurchPresenter, skip discovery
 #                                           --no-reboot           do not reboot at the end
@@ -35,7 +36,7 @@ done
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nError: %s\n' "$*" >&2; exit 1; }
 
-[ "$(id -u)" -eq 0 ] || die "run this as root (put sudo before bash)"
+[ "$(id -u)" -eq 0 ] || die "run this as root: put sudo before bash, or where there is no sudo, sign in as root (su -) first"
 command -v apt-get >/dev/null || die "this installer needs a Debian-based system (Raspberry Pi OS, Debian, Ubuntu)"
 command -v systemctl >/dev/null || die "this installer needs systemd"
 
@@ -53,19 +54,47 @@ if [ "$address_given" -eq 0 ] && [ -r /dev/tty ]; then
   read -r -p "ChurchPresenter address: " address < /dev/tty || address=""
 fi
 
-say "Installing Chromium, cage and the CEC tools"
+has_package() { apt-cache policy "$1" 2>/dev/null | grep -q 'Candidate: [^(]'; }
+is_ubuntu() {
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [ "${ID:-}" = ubuntu ] || case " ${ID_LIKE:-} " in *" ubuntu "*) true ;; *) false ;; esac
+}
+
+# The browser is chosen before anything is installed, so a system it cannot use is left untouched.
+say "Checking the system"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q --no-install-recommends cage v4l-utils curl ca-certificates fonts-dejavu-core
-if apt-cache show chromium >/dev/null 2>&1; then
-  apt-get install -y -q --no-install-recommends chromium
-elif apt-cache show chromium-browser >/dev/null 2>&1; then
-  apt-get install -y -q --no-install-recommends chromium-browser
+if has_package chromium; then
+  browser_kind=chromium; browser_package=chromium
+elif is_ubuntu; then
+  # Ubuntu's chromium-browser package only installs the snap.
+  browser_kind=firefox; browser_package=firefox
+elif has_package chromium-browser; then
+  browser_kind=chromium; browser_package=chromium-browser
+else
+  die "no Chromium package for this system; use Raspberry Pi OS, Debian or Ubuntu"
 fi
-browser="$(command -v chromium || command -v chromium-browser || true)"
-[ -n "$browser" ] || die "no Chromium package found; on Ubuntu the snap version cannot run in kiosk mode — use Debian or Raspberry Pi OS"
-if [ -L "$browser" ] && readlink -f "$browser" | grep -q snap; then
-  die "Chromium here is a snap, which cannot run under cage; use Debian or Raspberry Pi OS"
+
+say "Installing the browser ($browser_kind), cage and the CEC tools"
+apt-get install -y -q --no-install-recommends cage v4l-utils curl ca-certificates fonts-dejavu-core
+if [ "$browser_kind" = firefox ]; then
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL -o /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+    > /etc/apt/sources.list.d/mozilla.list
+  # Mozilla's firefox wins over Ubuntu's, which would install the snap.
+  printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > /etc/apt/preferences.d/mozilla
+  apt-get update -q
+  # Firefox plays H.264 through the system's codecs.
+  apt-get install -y -q --no-install-recommends firefox libavcodec-extra
+else
+  apt-get install -y -q --no-install-recommends "$browser_package"
+fi
+browser="$(command -v "$browser_package" || command -v "$browser_kind" || true)"
+[ -n "$browser" ] || die "the browser did not install"
+if readlink -f "$browser" | grep -q snap; then
+  die "the browser here is a snap, which cannot run under cage"
 fi
 
 say "Downloading the signage player ($platform)"
@@ -119,6 +148,52 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
+profile="/home/$USER_NAME/.signage-browser"
+kiosk_url="http://127.0.0.1:$KIOSK_PORT"
+if [ "$browser_kind" = firefox ]; then
+  install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "$profile"
+  # No restore prompt after a power cut or translation offers; videos play without a click.
+  cat > "$profile/user.js" <<'EOF'
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.translations.automaticallyPopup", false);
+user_pref("media.autoplay.default", 0);
+user_pref("media.autoplay.blocking_policy", 0);
+user_pref("full-screen-api.warning.timeout", 0);
+EOF
+  chown "$USER_NAME:$USER_NAME" "$profile/user.js"
+  # The terms-of-use and welcome screens are not prefs; only a policy keeps them off a TV no one can
+  # click. The machine is the screen's alone, so a system-wide policy is fine.
+  install -d -m 0755 /etc/firefox/policies
+  cat > /etc/firefox/policies/policies.json <<'EOF'
+{
+  "policies": {
+    "SkipTermsOfUse": true,
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisableAppUpdate": true,
+    "DontCheckDefaultBrowser": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "UserMessaging": {
+      "SkipOnboarding": true,
+      "WhatsNew": false,
+      "FeatureRecommendations": false,
+      "ExtensionRecommendations": false,
+      "MoreFromMozilla": false
+    }
+  }
+}
+EOF
+  kiosk_env="Environment=MOZ_ENABLE_WAYLAND=1"
+  browser_command="$browser --kiosk --profile $profile $kiosk_url"
+else
+  kiosk_env=""
+  browser_command="$browser --kiosk --ozone-platform=wayland --noerrdialogs --disable-infobars \\
+  --no-first-run --disable-session-crashed-bubble --disable-features=Translate \\
+  --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 \\
+  --user-data-dir=$profile $kiosk_url"
+fi
+
 cat > /etc/pam.d/churchpresenter-signage-kiosk <<'EOF'
 auth     required pam_unix.so nullok
 account  required pam_unix.so
@@ -143,10 +218,8 @@ TTYVTDisallocate=yes
 StandardInput=tty-fail
 UtmpIdentifier=tty1
 UtmpMode=user
-ExecStart=/usr/bin/cage -- $browser --kiosk --ozone-platform=wayland --noerrdialogs --disable-infobars \\
-  --no-first-run --disable-session-crashed-bubble --disable-features=Translate \\
-  --autoplay-policy=no-user-gesture-required --check-for-update-interval=31536000 \\
-  --user-data-dir=/home/$USER_NAME/.signage-browser http://127.0.0.1:$KIOSK_PORT
+$kiosk_env
+ExecStart=/usr/bin/cage -- $browser_command
 Restart=always
 RestartSec=2
 

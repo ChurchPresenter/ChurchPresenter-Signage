@@ -30,13 +30,23 @@ than an SD card in a screen that runs all day.
 
 ### Mini PC — Linux
 
-On a fresh **Debian** with no desktop installed:
+On a fresh **Debian** or **Ubuntu Server**, minimal, with no desktop installed:
 
 ```bash
 curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash
 ```
 
-Ubuntu works only with Chromium from a .deb; Ubuntu's snap Chromium cannot run in kiosk mode.
+On Ubuntu the screen uses Firefox from Mozilla's own packages, since Ubuntu's Chromium is a snap
+that cannot run as a kiosk.
+
+**No `curl`?** Use `wget` instead:
+
+```bash
+wget -qO- https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash
+```
+
+**No `sudo`?** (Debian when a root password was set during install.) Sign in as root first with
+`su -`, then run either command without `sudo`.
 
 ### Mini PC — Windows 10/11
 
