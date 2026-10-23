@@ -55,7 +55,7 @@ kotlin.sourceSets.main {
 
 // The Sentry plugin's source bundle reads every source folder, the generated one too, so it must
 // come after; Gradle refuses a build where it is not said.
-tasks.matching { it.name.contains("Sentry") }.configureEach { dependsOn(generateVersion) }
+tasks.matching { it.name.contains("sentry", ignoreCase = true) }.configureEach { dependsOn(generateVersion) }
 
 dependencies {
     implementation(projects.core)

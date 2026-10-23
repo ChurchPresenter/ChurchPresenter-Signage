@@ -27,6 +27,19 @@ on:
         required: false
         type: boolean
         default: false
+  # The same build, run by nightly.yml when main has moved. workflow_call cannot share the
+  # dispatch inputs above, so they are declared twice.
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      release:
+        type: boolean
+        default: true
+      prerelease:
+        type: boolean
+        default: false
 
 permissions:
   contents: read

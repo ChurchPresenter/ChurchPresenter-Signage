@@ -79,7 +79,8 @@ others). Most mini PCs have no CEC; use the TV's own on/off timer instead.
 ./gradlew :agent:installDist              # agent/build/install/churchpresenter-signage
 ```
 
-Releases are made as ChurchPresenter's are: run **Actions → Build → Run workflow**. The version is
+Releases are made as ChurchPresenter's are, by the **Build** workflow: every night by itself when
+`main` has changed since the last release, or by hand from **Actions → Build → Run workflow**. The version is
 worked out from the year and the commit count (`v26.0.42`), or typed in. The release, "ChurchPresenter
 Signage v26.0.42", has a bundle per platform (the player and its own Java runtime), `install.sh`,
 `SHA256SUMS` and the signed `signage-release.json` that ChurchPresenter updates screens from.
