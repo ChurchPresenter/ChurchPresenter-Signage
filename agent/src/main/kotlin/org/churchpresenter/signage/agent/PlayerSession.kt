@@ -39,6 +39,7 @@ class PlayerSession(
 
     /** What this player can do beyond the basics, as its hello lists it. */
     val features: List<String> = listOfNotNull(
+        Features.WIPE,
         Features.PREVIEW.takeIf { previews != null },
         Features.UPDATE.takeIf { updater != null && app?.canUpdate() == true },
     )
@@ -120,6 +121,13 @@ class PlayerSession(
         }
         ServerMessage.Refresh -> {
             engine.restartPlayer()
+            SessionNext.STAY
+        }
+        ServerMessage.Wipe -> {
+            Log.info("Wiping this screen's content at ChurchPresenter's request")
+            store.clearContent()
+            engine.reloadFromStore()
+            syncAndReload()
             SessionNext.STAY
         }
         is ServerMessage.PreviewRequest -> {

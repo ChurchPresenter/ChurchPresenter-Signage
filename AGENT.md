@@ -33,8 +33,16 @@ start; never anything in a Service block. A TV on another HDMI input must never 
   update that does not become healthy; `AppFolder` and `launch.sh` share the file names. The README's copy-paste commands fetch it from
   `releases/latest/download/`, so renaming it breaks every README link and every update. Windows
   and macOS get the desktop app (not yet built).
-- `.github/workflows/release.yml` runs on a `v*` tag that matches `AGENT_VERSION`: one bundle per
-  platform (installDist + a jlinked runtime), each smoke-started, then `SHA256SUMS` and a release.
+- **Releases follow ChurchPresenter's.** `.github/workflows/build.yml` ("Build") is run by hand. Its
+  version is ChurchPresenter's scheme, the two-digit year then the commit count split across two
+  segments (`v26.0.42`), and the build takes it as `-PsignageVersion`; a local build works it out
+  the same way (root `build.gradle.kts`), and `AGENT_VERSION` is generated from it. One bundle per
+  platform (installDist + a jlinked runtime), each smoke-started, named as ChurchPresenter's
+  installers: `ChurchPresenter-Signage-26.0.42-LINUX-arm64.tar.gz`, `…-LINUX-x64.tar.gz`,
+  `…-WINDOWS-x64.zip`; the release is "ChurchPresenter Signage v26.0.42". `install.sh` finds its
+  bundle by that name in the release's `SHA256SUMS`.
+- `install.sh` also installs `/usr/local/sbin/churchpresenter-signage-reset`, the factory reset on
+  the device (`--factory-reset`, `PlayerStore.factoryReset`).
 - **Updates are signed.** The publish job writes `signage-release.json` and signs it with the repo
   secret `SIGNAGE_SIGNING_KEY` (an Ed25519 private key, PKCS#8 PEM); a release fails without it. The
   public key is `ReleaseSigning.PUBLIC_KEY` in `:core`, and ChurchPresenter's copy of core must

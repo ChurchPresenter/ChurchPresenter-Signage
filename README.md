@@ -55,6 +55,17 @@ PC are on separate networks, the installer asks for ChurchPresenter's address (f
 curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash -s -- --address 192.168.1.20:8765
 ```
 
+### Factory reset
+
+To move a screen to another church, or when the ChurchPresenter that owns it is gone, run this on
+the screen itself. It deletes its pictures, videos and pairing, and the TV shows a new pairing code:
+
+```bash
+sudo churchpresenter-signage-reset
+```
+
+From ChurchPresenter, **Factory reset** on the screen's card in the Signage tab does the same.
+
 ### TV on and off
 
 On a Raspberry Pi the screen turns the TV on and off over HDMI-CEC. Turn CEC on in the TV's settings
@@ -68,8 +79,10 @@ others). Most mini PCs have no CEC; use the TV's own on/off timer instead.
 ./gradlew :agent:installDist              # agent/build/install/churchpresenter-signage
 ```
 
-A tag `v<version>` matching `AGENT_VERSION` publishes a release with a bundle per platform (agent and
-its own Java runtime), the install scripts and `SHA256SUMS`.
+Releases are made as ChurchPresenter's are: run **Actions → Build → Run workflow**. The version is
+worked out from the year and the commit count (`v26.0.42`), or typed in. The release, "ChurchPresenter
+Signage v26.0.42", has a bundle per platform (the player and its own Java runtime), `install.sh`,
+`SHA256SUMS` and the signed `signage-release.json` that ChurchPresenter updates screens from.
 
 ## Licence
 

@@ -128,16 +128,28 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun aWipeDeletesTheContentAndFetchesTheManifestAgain() = runTest {
+        session.onConnected()
+        assertTrue(store.files.has(pictureA.sha))
+        source.manifest = manifestOf()
+        source.version = "empty"
+        assertEquals(SessionNext.STAY, session.handle(ServerMessage.Wipe))
+        assertFalse(store.files.has(pictureA.sha))
+        assertEquals("empty", store.manifest()?.version)
+        assertTrue(store.identity().isPaired)
+    }
+
+    @Test
     fun aPlayerListsOnlyWhatItCanDo() = runTest {
-        assertEquals(emptyList(), session.hello().features)
+        assertEquals(listOf(Features.WIPE), session.hello().features)
         val app = AppFolder(root.resolve("app"))
         val withPreview = sessionWith(previews = PreviewMaker({ false }, root), app = app)
-        assertEquals(listOf(Features.PREVIEW), withPreview.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.PREVIEW), withPreview.hello().features)
         root.resolve("app/0.1.0").createDirectories()
         Files.createSymbolicLink(root.resolve("app/current"), Path.of("0.1.0"))
         val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
         assertEquals(
-            listOf(Features.PREVIEW, Features.UPDATE),
+            listOf(Features.WIPE, Features.PREVIEW, Features.UPDATE),
             sessionWith(app = app, previews = PreviewMaker({ false }, root), updater = updater).hello().features,
         )
     }

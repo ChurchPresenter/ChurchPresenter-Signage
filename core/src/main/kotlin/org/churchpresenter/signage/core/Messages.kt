@@ -69,6 +69,9 @@ object Features {
 
     /** Installs [ServerMessage.UpdateAvailable] and reports [PlayerMessage.UpdateProgress]. */
     const val UPDATE = "update"
+
+    /** Answers [ServerMessage.Wipe]. */
+    const val WIPE = "wipe"
 }
 
 @Serializable
@@ -138,6 +141,15 @@ sealed interface ServerMessage {
     @Serializable
     @SerialName("refresh")
     data object Refresh : ServerMessage
+
+    /**
+     * Deletes everything the player has stored (pictures, videos, manifests, a manual switch) and
+     * fetches its manifest again; it stays paired. Sent with a manifest that names nothing to play,
+     * the screen is left on its idle card holding no content.
+     */
+    @Serializable
+    @SerialName("wipe")
+    data object Wipe : ServerMessage
 
     /** Asks for a [PlayerMessage.Preview] no wider than [maxWidth]. Sent only while someone looks. */
     @Serializable

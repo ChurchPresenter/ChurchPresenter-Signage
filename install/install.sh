@@ -74,9 +74,13 @@ mpv_path="$(command -v mpv || true)"
 say "Downloading the signage player ($platform)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-bundle="churchpresenter-signage-$platform.tar.gz"
-curl -fsSL -o "$work/$bundle" "$BASE_URL/$bundle"
+# Bundles are named as ChurchPresenter's installers: ChurchPresenter-Signage-26.0.42-LINUX-arm64.tar.gz.
+# The release's checksum list names this one.
 curl -fsSL -o "$work/SHA256SUMS" "$BASE_URL/SHA256SUMS"
+case "$platform" in linux-arm64) suffix=LINUX-arm64 ;; *) suffix=LINUX-x64 ;; esac
+bundle="$(sed -n "s/^[0-9a-f]\{64\}  \(ChurchPresenter-Signage-.*-$suffix\.tar\.gz\)\$/\1/p" "$work/SHA256SUMS" | head -n 1)"
+[ -n "$bundle" ] || die "the latest release has no build for this machine ($suffix)"
+curl -fsSL -o "$work/$bundle" "$BASE_URL/$bundle"
 (cd "$work" && grep " $bundle\$" SHA256SUMS | sha256sum -c --quiet -) || die "the download does not match its checksum"
 
 say "Installing to $DATA/app"
@@ -100,6 +104,22 @@ chown -R "$USER_NAME:$USER_NAME" "$DATA/app"
 rm -rf "$PREFIX"
 install -d -m 0755 "$PREFIX"
 install -m 0755 "$DATA/app/$version/launch.sh" "$PREFIX/launch.sh"
+
+# For a screen moving to another church, or one whose ChurchPresenter is gone: wipes its content and
+# pairing so it shows a new pairing code. ChurchPresenter can do the same from the Signage tab.
+cat > /usr/local/sbin/churchpresenter-signage-reset <<EOF
+#!/bin/sh
+# Factory reset of the ChurchPresenter signage player: deletes its pictures, videos, playlists and
+# pairing; it then shows a new pairing code. The installed player and its settings stay.
+set -e
+[ "\$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
+systemctl stop $AGENT_UNIT
+runuser -u $USER_NAME -- env JAVA_HOME=$DATA/app/current/runtime \\
+  $DATA/app/current/bin/churchpresenter-signage --data $DATA --factory-reset
+systemctl start $AGENT_UNIT
+echo "Reset. The TV shows a new pairing code; approve it in ChurchPresenter's Signage tab."
+EOF
+chmod 0755 /usr/local/sbin/churchpresenter-signage-reset
 
 say "Removing the browser kiosk of earlier versions"
 systemctl disable --now "$OLD_KIOSK_UNIT" 2>/dev/null || true
