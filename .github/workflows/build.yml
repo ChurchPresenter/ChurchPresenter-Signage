@@ -89,7 +89,11 @@ jobs:
         env:
           # Uploads the sources to Sentry for stack traces with code; the build works without it.
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        run: ./gradlew :core:test :agent:test :agent:installDist -PsignageVersion="$VERSION" --console=plain
+        run: |
+          tasks=":core:test :agent:test :agent:installDist"
+          # Each bundle's jar names its own source bundle, so each job uploads the one it built.
+          [ -n "$SENTRY_AUTH_TOKEN" ] && tasks="$tasks :agent:sentryUploadSourceBundleJava"
+          ./gradlew $tasks -PsignageVersion="$VERSION" --console=plain
 
       - name: Bundle with a Java runtime
         run: |
