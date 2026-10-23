@@ -42,7 +42,11 @@ fun main(args: Array<String>) {
     }
     var address: String? = null
     val platform = AgentConfig.currentPlatform()
-    val player = MpvPlayer(engine.state, MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)))
+    val player = MpvPlayer(
+        engine.state,
+        MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)),
+        MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
+    )
     val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession

@@ -26,8 +26,12 @@ object MpvScene {
     private const val CARD_OVERLAY = 1
     private const val IDENTIFY_OVERLAY = 2
 
-    /** [previous] is what mpv shows now, or null when it has just started. */
-    fun commands(previous: ScreenState?, next: ScreenState): List<JsonElement> = buildList {
+    /**
+     * [previous] is what mpv shows now, or null when it has just started. [blank] is a black picture:
+     * shown when there is nothing else, rather than stopping, so mpv always has a frame to draw the
+     * idle card's text on and to take the Signage tab's preview from.
+     */
+    fun commands(previous: ScreenState?, next: ScreenState, blank: Path): List<JsonElement> = buildList {
         if (previous == null || previous.orientation != next.orientation) {
             add(setProperty("video-rotate", JsonPrimitive(next.orientation.clockwiseDegrees)))
         }
@@ -35,7 +39,7 @@ object MpvScene {
         if (previous == null || boxOf(previous) != boxOf(next) || previous.orientation != next.orientation) {
             addAll(margins(boxOf(next), next.orientation))
         }
-        if (previous == null || contentOf(previous) != content) addAll(load(content))
+        if (previous == null || contentOf(previous) != content) addAll(load(content, blank))
         val card = OsdText.idleCard(next)
         if (previous == null || OsdText.idleCard(previous) != card) add(overlay(CARD_OVERLAY, card))
         val identify = OsdText.identify(next)
@@ -58,8 +62,8 @@ object MpvScene {
 
     private fun boxOf(state: ScreenState): List<Double> = if (contentOf(state) is Content.Logo) LOGO_BOX else NO_MARGINS
 
-    private fun load(content: Content): List<JsonElement> = when (content) {
-        Content.Nothing -> listOf(buildJsonArray { add(JsonPrimitive("stop")) })
+    private fun load(content: Content, blank: Path): List<JsonElement> = when (content) {
+        Content.Nothing -> listOf(loadfile(blank, "replace", "image-display-duration=inf"))
         is Content.Logo -> listOf(loadfile(content.file, "replace", "image-display-duration=inf"))
         is Content.Playlist -> content.items.mapIndexed { index, item ->
             loadfile(item.file, if (index == 0) "replace" else "append", options(item, content.items.size == 1))

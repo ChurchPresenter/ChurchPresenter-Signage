@@ -32,6 +32,7 @@ class MpvPlayerTest {
         }
     }
 
+    private val blank = Path.of("/store/blank.png")
     private val state = MutableStateFlow(ScreenState(ScreenMode.IDLE, message = "code 1234"))
     private val sessions = mutableListOf<FakeSession>()
     private var failNextStart = false
@@ -44,7 +45,7 @@ class MpvPlayerTest {
     }
 
     private fun TestScope.startPlayer() {
-        backgroundScope.launch { MpvPlayer(state, launcher, restartDelayMs = 0).run() }
+        backgroundScope.launch { MpvPlayer(state, launcher, blank, restartDelayMs = 0).run() }
         runCurrent()
     }
 
@@ -52,7 +53,7 @@ class MpvPlayerTest {
     fun aFreshMpvGetsEverythingThenOnlyChanges() = runTest {
         startPlayer()
         val first = sessions.single()
-        assertEquals(MpvScene.commands(null, state.value), first.sent.single())
+        assertEquals(MpvScene.commands(null, state.value, blank), first.sent.single())
         state.value = state.value.copy(message = "code 5678")
         runCurrent()
         assertEquals(1, first.sent.last().size)
@@ -65,7 +66,7 @@ class MpvPlayerTest {
         runCurrent()
         assertEquals(2, sessions.size)
         assertTrue(sessions[0].closed)
-        assertEquals(MpvScene.commands(null, state.value), sessions[1].sent.single())
+        assertEquals(MpvScene.commands(null, state.value, blank), sessions[1].sent.single())
     }
 
     @Test
