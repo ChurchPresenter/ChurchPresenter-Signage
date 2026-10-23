@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import java.io.IOException
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -21,6 +22,8 @@ class MpvPlayerTest {
         override fun send(commands: List<JsonElement>) {
             sent += commands
         }
+
+        override suspend fun screenshot(file: Path): Boolean = false
 
         override suspend fun awaitExit() = exit.await()
 

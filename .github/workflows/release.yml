@@ -2,7 +2,9 @@ name: Release
 
 # Push a tag like v0.1.0. Builds the agent with its own Java runtime for each platform, checks each
 # bundle starts (on Linux, that it starts mpv and drives it), and publishes them with the install
-# script and SHA256SUMS. The install commands in README.md download from the latest release.
+# script, SHA256SUMS, and signage-release.json signed with the SIGNAGE_SIGNING_KEY secret, which is
+# what ChurchPresenter and the players trust for updates. The install commands in README.md download
+# from the latest release.
 
 on:
   push:
@@ -47,8 +49,11 @@ jobs:
         run: |
           out=churchpresenter-signage
           cp -r agent/build/install/churchpresenter-signage "$out"
+          echo "${GITHUB_REF_NAME#v}" > "$out/VERSION"
+          cp install/launch.sh "$out/launch.sh"
+          # java.desktop scales the Signage tab's previews (headless).
           "$JAVA_HOME/bin/jlink" \
-            --add-modules java.base,java.logging,java.management,java.naming,java.xml,jdk.crypto.ec,jdk.unsupported \
+            --add-modules java.base,java.desktop,java.logging,java.management,java.naming,java.xml,jdk.crypto.ec,jdk.unsupported \
             --strip-debug --no-header-files --no-man-pages --compress zip-6 \
             --output "$out/runtime"
 
@@ -97,6 +102,32 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Write and sign the release index
+        env:
+          SIGNAGE_SIGNING_KEY: ${{ secrets.SIGNAGE_SIGNING_KEY }}
+        run: |
+          test -n "$SIGNAGE_SIGNING_KEY" || { echo "The SIGNAGE_SIGNING_KEY secret is not set"; exit 1; }
+          protocol=$(sed -n 's/^const val PROTOCOL_VERSION = \([0-9]*\)$/\1/p' core/src/main/kotlin/org/churchpresenter/signage/core/Protocol.kt)
+          python3 - "${GITHUB_REF_NAME#v}" "$protocol" <<'EOF'
+          import hashlib, json, os, sys
+          version, protocol = sys.argv[1], int(sys.argv[2])
+          platforms = {"linux-arm64": "linux_arm64", "linux-x64": "linux_x64", "windows-x64": "windows_x64"}
+          assets = {}
+          for name in sorted(os.listdir("dist")):
+              for key, platform in platforms.items():
+                  if name.startswith(f"churchpresenter-signage-{key}."):
+                      data = open(os.path.join("dist", name), "rb").read()
+                      assets[platform] = {"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+          index = {"version": version, "protocolMin": protocol, "protocolMax": protocol, "assets": assets}
+          open("dist/signage-release.json", "w").write(json.dumps(index, indent=2) + "\n")
+          EOF
+          key=$(mktemp)
+          printf '%s\n' "$SIGNAGE_SIGNING_KEY" > "$key"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in dist/signage-release.json -out signature.bin
+          rm -f "$key"
+          base64 -w0 signature.bin > dist/signage-release.json.sig
+          cat dist/signage-release.json
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

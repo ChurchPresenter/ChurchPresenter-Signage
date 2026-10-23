@@ -79,19 +79,27 @@ curl -fsSL -o "$work/$bundle" "$BASE_URL/$bundle"
 curl -fsSL -o "$work/SHA256SUMS" "$BASE_URL/SHA256SUMS"
 (cd "$work" && grep " $bundle\$" SHA256SUMS | sha256sum -c --quiet -) || die "the download does not match its checksum"
 
-say "Installing to $PREFIX"
+say "Installing to $DATA/app"
 id "$USER_NAME" >/dev/null 2>&1 || useradd --system --create-home --home-dir "/home/$USER_NAME" --shell /usr/sbin/nologin "$USER_NAME"
 for group in video render input; do
   getent group "$group" >/dev/null && usermod -aG "$group" "$USER_NAME"
 done
 systemctl stop "$OLD_KIOSK_UNIT" "$AGENT_UNIT" 2>/dev/null || true
-rm -rf "$PREFIX.new"
-mkdir -p "$PREFIX.new"
-tar xzf "$work/$bundle" -C "$PREFIX.new" --strip-components=1
-rm -rf "$PREFIX.old"
-[ -d "$PREFIX" ] && mv "$PREFIX" "$PREFIX.old"
-mv "$PREFIX.new" "$PREFIX"
-install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$DATA"
+install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$DATA" "$DATA/app"
+# The player lives in the data folder as app/<version>/ with a `current` link, so it can update
+# itself without root; launch.sh (from the bundle) starts it and rolls a failed update back.
+mkdir -p "$work/unpacked"
+tar xzf "$work/$bundle" -C "$work/unpacked"
+version="$(cat "$work/unpacked/churchpresenter-signage/VERSION" 2>/dev/null || echo installed)"
+rm -rf "${DATA:?}/app/$version"
+mv "$work/unpacked/churchpresenter-signage" "$DATA/app/$version"
+ln -sfn "$version" "$DATA/app/current"
+rm -f "$DATA/app/pending" "$DATA/app/previous" "$DATA/app/rolled-back"
+chown -R "$USER_NAME:$USER_NAME" "$DATA/app"
+# Earlier versions installed the whole player here; now only the launcher stays outside the data.
+rm -rf "$PREFIX"
+install -d -m 0755 "$PREFIX"
+install -m 0755 "$DATA/app/$version/launch.sh" "$PREFIX/launch.sh"
 
 say "Removing the browser kiosk of earlier versions"
 systemctl disable --now "$OLD_KIOSK_UNIT" 2>/dev/null || true
@@ -137,11 +145,11 @@ TTYVTDisallocate=yes
 StandardInput=tty-fail
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=churchpresenter-signage
 UtmpIdentifier=tty1
 UtmpMode=user
-Environment=JAVA_HOME=$PREFIX/runtime
 Environment=JAVA_OPTS=-Xmx256m
-ExecStart=$PREFIX/bin/churchpresenter-signage $agent_args --mpv-args "$mpv_args"
+ExecStart=$PREFIX/launch.sh $DATA/app $agent_args --mpv-args "$mpv_args"
 Restart=always
 RestartSec=3
 
@@ -157,7 +165,6 @@ fi
 
 systemctl daemon-reload
 systemctl enable "$AGENT_UNIT" >/dev/null
-rm -rf "$PREFIX.old"
 
 say "Installed"
 echo "The TV will show a pairing code. Approve it in ChurchPresenter's Signage tab."

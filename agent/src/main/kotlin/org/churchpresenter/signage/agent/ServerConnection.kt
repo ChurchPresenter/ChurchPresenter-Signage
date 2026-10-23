@@ -69,12 +69,18 @@ class ServerConnection(
                         delay(STATUS_EVERY_MS)
                     }
                 }
+                val forwarder = launch {
+                    for (message in session.outgoing) {
+                        send(Frame.Text(SignageJson.encodeToString(PlayerMessage.serializer(), message)))
+                    }
+                }
                 for (frame in incoming) {
                     val message = (frame as? Frame.Text)?.let(::decode)
                     if (message != null) next = session.handle(message)
                     if (next != SessionNext.STAY) break
                 }
                 reporter.cancel()
+                forwarder.cancel()
             }
         } catch (e: WebSocketException) {
             if (token != null && HttpStatusCode.Unauthorized.value.toString() in e.message.orEmpty()) {

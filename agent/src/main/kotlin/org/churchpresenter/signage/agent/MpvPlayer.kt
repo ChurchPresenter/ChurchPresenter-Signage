@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.selects.select
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.Closeable
 import java.io.IOException
 import java.nio.file.Path
@@ -28,6 +30,9 @@ class MpvPlayer(
     interface Session : Closeable {
         fun send(commands: List<JsonElement>)
 
+        /** Writes what mpv draws now to [file] as a JPEG; false if it could not. */
+        suspend fun screenshot(file: Path): Boolean
+
         /** Returns when mpv has exited. */
         suspend fun awaitExit()
     }
@@ -37,17 +42,32 @@ class MpvPlayer(
         fun start(): Session
     }
 
+    @Volatile
+    private var current: Session? = null
+
+    /** What the screen shows now, as a JPEG in [file]; false when mpv is not up or could not. */
+    suspend fun screenshot(file: Path): Boolean = current?.screenshot(file) ?: false
+
     /** Runs until cancelled. */
     suspend fun run() {
         while (true) {
             try {
-                launcher.start().use { drive(it) }
+                launcher.start().use { session -> driveAsCurrent(session) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
                 Log.error("mpv failed: ${e.message}")
             }
             delay(restartDelayMs)
+        }
+    }
+
+    private suspend fun driveAsCurrent(session: Session) {
+        current = session
+        try {
+            drive(session)
+        } finally {
+            current = null
         }
     }
 
@@ -140,6 +160,17 @@ class MpvProcessLauncher(
     private class ProcessSession(private val process: Process, private val ipc: MpvIpc) : MpvPlayer.Session {
         override fun send(commands: List<JsonElement>) = ipc.send(commands)
 
+        /** The window as drawn, text included; an output that cannot give that gives the picture alone. */
+        override suspend fun screenshot(file: Path): Boolean = listOf("window", "video").any { flags ->
+            ipc.request(
+                buildJsonObject {
+                    put("name", "screenshot-to-file")
+                    put("filename", file.toString())
+                    put("flags", flags)
+                },
+            )
+        }
+
         override suspend fun awaitExit() {
             process.onExit().await()
         }
@@ -175,7 +206,9 @@ class MpvProcessLauncher(
             "--loop-playlist=inf",
             "--hwdec=auto-safe",
             "--video-sync=display-resample",
-            "--msg-level=all=warn,input=error",
+            // ffmpeg warns on every video while it looks for hardware the machine does not have.
+            "--msg-level=all=warn,input=error,ffmpeg=error",
+            "--screenshot-format=jpg",
             "--input-ipc-server=$ipcPath",
         )
 
