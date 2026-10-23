@@ -74,6 +74,8 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
 - `schedule[].action`: `play` (a playlist, TV on), `tv_off`, `service` (keep playing the default
   playlist, send nothing over CEC).
 - A playlist item's `durationMs` is null for a video that plays to its end.
+- `diagnostics` says whether the screen may send crash reports: the owning ChurchPresenter's
+  analytics setting. A player with no manifest reports.
 
 ## What a screen shows
 `decide()` in `:core`, in order: an active override; the block running now; the default playlist.

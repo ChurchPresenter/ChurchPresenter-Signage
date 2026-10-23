@@ -28,6 +28,8 @@ class MpvPlayer(
     private val launcher: Launcher,
     /** A black picture, shown when there is nothing else; see [MpvScene.commands]. */
     private val blank: Path,
+    /** Told each time mpv exits by itself or fails to start, not on a refresh. */
+    private val onExit: () -> Unit = {},
     private val restartDelayMs: Long = RESTART_DELAY_MS,
 ) {
     /** A running mpv the player can drive. */
@@ -60,7 +62,10 @@ class MpvPlayer(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                Log.error("mpv failed: ${e.message}")
+                // Retried every few seconds: a warning, counted as an exit, so a screen that cannot
+                // start mpv files one report an hour rather than one each try.
+                Log.warn("mpv failed: ${e.message}")
+                onExit()
             }
             delay(restartDelayMs)
         }
@@ -86,7 +91,10 @@ class MpvPlayer(
             }
         }
         select {
-            exited.onAwait { Log.warn("mpv exited; starting it again") }
+            exited.onAwait {
+                Log.warn("mpv exited; starting it again")
+                onExit()
+            }
             restartAsked.onAwait { Log.info("Restarting mpv on request") }
         }
         coroutineContext.cancelChildren()
@@ -117,6 +125,12 @@ class MpvProcessLauncher(
 ) : MpvPlayer.Launcher {
     /** The options whose names differ between the mpv versions the player runs on, read from mpv once. */
     private val versionArgs: List<String> by lazy {
+        version = try {
+            ProcessBuilder(executable, "--version").redirectErrorStream(true).start()
+                .inputReader().useLines { it.firstOrNull().orEmpty() }.substringBefore(" Copyright").trim()
+        } catch (_: IOException) {
+            ""
+        }
         val names = try {
             val probe = ProcessBuilder(executable, "--list-options").redirectErrorStream(true).start()
             probe.inputReader().useLines { lines ->
@@ -127,6 +141,16 @@ class MpvProcessLauncher(
         }
         versionArgs(names)
     }
+
+    private val output = ArrayDeque<String>()
+
+    /** mpv's last lines of output, to go with a report that it keeps exiting. */
+    fun recentOutput(): List<String> = synchronized(output) { output.toList() }
+
+    /** mpv's version line, e.g. `mpv 0.37.0`, once it has been asked; "" until then. */
+    @Volatile
+    var version: String = ""
+        private set
 
     /** The mpv running now, closed with the agent so no window outlives it. */
     @Volatile
@@ -142,7 +166,7 @@ class MpvProcessLauncher(
             .redirectErrorStream(true)
             .start()
         running = process
-        Thread({ process.inputReader().forEachLine { Log.warn("mpv: $it") } }, "mpv-output")
+        Thread({ process.inputReader().forEachLine { line -> remember(line); Log.warn("mpv: $line") } }, "mpv-output")
             .apply { isDaemon = true }
             .start()
         val ipc = try {
@@ -153,6 +177,11 @@ class MpvProcessLauncher(
         }
         Log.info("mpv started (pid ${process.pid()})")
         return ProcessSession(process, ipc)
+    }
+
+    private fun remember(line: String) = synchronized(output) {
+        output.addLast(line)
+        while (output.size > KEPT_OUTPUT_LINES) output.removeFirst()
     }
 
     private fun connect(process: Process): MpvIpc {
@@ -196,6 +225,7 @@ class MpvProcessLauncher(
     companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val CONNECT_POLL_MS = 100L
+        private const val KEPT_OUTPUT_LINES = 30
 
         /**
          * Full screen, silent, nothing of mpv's own on screen and no keys: the agent is the only

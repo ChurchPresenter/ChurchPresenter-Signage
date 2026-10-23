@@ -86,6 +86,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Test and build
+        env:
+          # Uploads the sources to Sentry for stack traces with code; the build works without it.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: ./gradlew :core:test :agent:test :agent:installDist -PsignageVersion="$VERSION" --console=plain
 
       - name: Bundle with a Java runtime

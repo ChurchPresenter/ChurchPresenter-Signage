@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.churchpresenter.signage.core.Platform
 import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -42,12 +43,25 @@ fun main(args: Array<String>) {
     }
     var address: String? = null
     val platform = AgentConfig.currentPlatform()
+    val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
+    val launcher = MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config))
+    val output = config.mpvArgs.firstOrNull { it.startsWith("--vo=") }?.removePrefix("--vo=") ?: "default"
+    startDiagnostics(store, platform, output, app)
+    val exits = ExitWatch()
     val player = MpvPlayer(
         engine.state,
-        MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)),
+        launcher,
         MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
+        onExit = {
+            if (exits.exited()) {
+                Diagnostics.report(
+                    "mpv keeps exiting",
+                    mapOf("mpv.version" to launcher.version, "mpv.output" to output),
+                    launcher.recentOutput(),
+                )
+            }
+        },
     )
-    val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession
     val updater = Updater(
@@ -93,6 +107,26 @@ fun main(args: Array<String>) {
             delay(HEALTHY_AFTER_MS)
             app.markHealthy()
         }
+    }
+}
+
+/**
+ * Starts crash reporting while the owning ChurchPresenter allows it, and reports an update the
+ * launcher rolled back since the last run.
+ */
+private fun startDiagnostics(store: PlayerStore, platform: Platform, output: String, app: AppFolder) {
+    val setup = Diagnostics.Setup(
+        dsn = Diagnostics.dsnFrom(Diagnostics::class.java.getResourceAsStream("/sentry.properties")),
+        release = AGENT_VERSION,
+        production = RELEASE_BUILD,
+        platform = platform.name.lowercase(),
+        installId = store.identity().playerId,
+    )
+    Diagnostics.start(setup) { store.manifest()?.manifest?.diagnostics ?: true }
+    Diagnostics.tag("mpv.output", output)
+    app.rolledBackVersion()?.let { failed ->
+        val tags = mapOf("update.failed" to failed, "update.kept" to AGENT_VERSION)
+        Diagnostics.report("An update was rolled back", tags)
     }
 }
 

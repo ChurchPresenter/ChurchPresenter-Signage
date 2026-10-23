@@ -25,6 +25,7 @@ class WireFieldsTest {
         assertEquals("Grace Church", manifest.idleCard.title)
         assertEquals("3".repeat(64), manifest.idleCard.logoSha256)
         assertEquals("welcome", manifest.defaultPlaylistId)
+        assertEquals(false, manifest.diagnostics)
     }
 
     @Test

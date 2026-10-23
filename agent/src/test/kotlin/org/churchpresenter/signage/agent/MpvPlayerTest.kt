@@ -44,8 +44,10 @@ class MpvPlayerTest {
         FakeSession().also { sessions += it }
     }
 
+    private var exits = 0
+
     private fun TestScope.startPlayer() {
-        backgroundScope.launch { MpvPlayer(state, launcher, blank, restartDelayMs = 0).run() }
+        backgroundScope.launch { MpvPlayer(state, launcher, blank, onExit = { exits++ }, restartDelayMs = 0).run() }
         runCurrent()
     }
 
@@ -65,6 +67,7 @@ class MpvPlayerTest {
         sessions.single().exit.complete(Unit)
         runCurrent()
         assertEquals(2, sessions.size)
+        assertEquals(1, exits, "an exit is told")
         assertTrue(sessions[0].closed)
         assertEquals(MpvScene.commands(null, state.value, blank), sessions[1].sent.single())
     }
@@ -75,6 +78,7 @@ class MpvPlayerTest {
         state.value = state.value.copy(restartToken = 1)
         runCurrent()
         assertEquals(2, sessions.size)
+        assertEquals(0, exits, "a refresh is not an exit")
         assertTrue(sessions[0].closed)
         assertEquals(1, sessions[0].sent.size)
     }
@@ -84,6 +88,7 @@ class MpvPlayerTest {
         failNextStart = true
         startPlayer()
         assertEquals(1, sessions.size)
+        assertEquals(1, exits, "a failed start counts as an exit")
     }
 }
 

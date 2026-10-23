@@ -20,5 +20,6 @@
   ],
   "defaultPlaylistId": "welcome",
   "idleCard": { "title": "Grace Church", "logoSha256": "3333333333333333333333333333333333333333333333333333333333333333" },
-  "timeZone": "America/Chicago"
+  "timeZone": "America/Chicago",
+  "diagnostics": false
 }

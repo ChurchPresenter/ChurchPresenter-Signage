@@ -24,6 +24,11 @@ data class Manifest(
     val idleCard: IdleCard = IdleCard(),
     /** An IANA zone id (`"America/Chicago"`); schedule times are wall-clock times in it. */
     val timeZone: String,
+    /**
+     * Whether the screen may send crash reports: the owning ChurchPresenter's own analytics
+     * setting. A screen with no manifest yet reports, as a ChurchPresenter does before it is set up.
+     */
+    val diagnostics: Boolean = true,
 ) {
     fun playlist(id: String?): Playlist? = id?.let { wanted -> playlists.firstOrNull { it.id == wanted } }
 
