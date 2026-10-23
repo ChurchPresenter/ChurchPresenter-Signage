@@ -12,19 +12,25 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), the kiosk page and its local server, CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
 
 The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
-(`Fixtures.kt`) and never a real socket except `KioskServerTest`'s in-process Ktor host.
+(`Fixtures.kt`) and never a real mpv; `MpvIpcTest` talks to a Unix socket of its own, `MpvPlayerTest` to a
+fake session.
+
+**mpv rule:** the oldest mpv the player meets is 0.35 (Debian 12, Raspberry Pi OS). Send `loadfile` and
+other commands with options in mpv's named-argument form, which reads the same on every version, and
+put any option whose name changed between versions in `MpvProcessLauncher.versionArgs`, which picks
+by what `mpv --list-options` lists.
 
 **CEC rule:** send only when the wanted power changes; never power-on on the first decision after
 start; never anything in a Service block. A TV on another HDMI input must never be pulled away.
 
 ## Install and release
-- `install/install.sh` (Pi and Linux mini PCs: cage + Chromium kiosk, systemd units, sudoers rule for
-  the kiosk restart) and `install/install.ps1` (Windows: scheduled tasks, Edge kiosk). The README's
-  copy-paste commands fetch them from `releases/latest/download/`, so renaming either breaks every
-  README link and every update.
+- `install/install.sh` (Pi and Linux mini PCs: mpv on DRM/KMS with no desktop, one systemd unit in
+  a console session on tty1). The README's copy-paste commands fetch it from
+  `releases/latest/download/`, so renaming it breaks every README link and every update. Windows
+  and macOS get the desktop app (not yet built).
 - `.github/workflows/release.yml` runs on a `v*` tag that matches `AGENT_VERSION`: one bundle per
   platform (installDist + a jlinked runtime), each smoke-started, then `SHA256SUMS` and a release.
 - Not yet: signing (phase 3) and the read-only system disk.
@@ -56,6 +62,6 @@ names in signatures, KDoc on public API.
 ```bash
 ./gradlew :core:test :agent:test detekt   # both suites and the gate — run detekt last
 ./gradlew :agent:installDist             # agent/build/install/churchpresenter-signage/bin/…
-# run locally: …/bin/churchpresenter-signage --data /tmp/sig --no-cec --kiosk-port 18090, open http://127.0.0.1:18090
+# run locally, in a window: …/bin/churchpresenter-signage --data /tmp/sig --no-cec --mpv-args "--no-fullscreen"
 ./gradlew detekt --auto-correct     # fixes formatting findings
 ```

@@ -11,24 +11,25 @@ class AgentConfigTest {
     fun readsEveryFlag() {
         val config = AgentConfig.parse(
             listOf(
-                "--data", "/srv/signage", "--kiosk-port", "9000", "--address", "10.0.0.5:8765",
-                "--no-cec", "--screen", "3840x2160", "--browser-restart", "systemctl restart signage-kiosk",
+                "--data", "/srv/signage", "--address", "10.0.0.5:8765", "--no-cec", "--screen", "3840x2160",
+                "--mpv", "/opt/mpv/mpv", "--mpv-args", "--vo=gpu  --gpu-context=drm",
             ),
             Platform.LINUX_ARM64,
         )
         assertEquals(Path("/srv/signage"), config.dataDir)
-        assertEquals(9000, config.kioskPort)
         assertEquals("10.0.0.5:8765", config.address)
         assertEquals(false, config.cec)
         assertEquals(3840 to 2160, config.screenWidth to config.screenHeight)
-        assertEquals(listOf("systemctl", "restart", "signage-kiosk"), config.browserRestartCommand)
+        assertEquals("/opt/mpv/mpv", config.mpv)
+        assertEquals(listOf("--vo=gpu", "--gpu-context=drm"), config.mpvArgs)
     }
 
     @Test
     fun defaultsSuitTheService() {
         val config = AgentConfig.parse(emptyList(), Platform.LINUX_X64)
         assertEquals(Path("/var/lib/churchpresenter-signage"), config.dataDir)
-        assertEquals(AgentConfig.DEFAULT_KIOSK_PORT, config.kioskPort)
+        assertEquals("mpv", config.mpv)
+        assertEquals(emptyList(), config.mpvArgs)
         assertEquals(true, config.cec)
         assertEquals(null, AgentConfig.parse(listOf("--address", " "), Platform.LINUX_X64).address)
     }

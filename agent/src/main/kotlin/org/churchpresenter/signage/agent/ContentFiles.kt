@@ -21,7 +21,7 @@ class ContentFiles(private val dir: Path) {
 
     fun has(sha256: String): Boolean = isSha256Hex(sha256) && dir.resolve(sha256).exists()
 
-    /** Where a file lives, for the kiosk server; null for anything that is not a stored hash. */
+    /** Where a file lives, for the player; null for anything that is not a stored hash. */
     fun path(sha256: String): Path? = if (has(sha256)) dir.resolve(sha256) else null
 
     /** Stores [content] as [sha256] if its bytes hash to that; returns false, keeping nothing, if not. */

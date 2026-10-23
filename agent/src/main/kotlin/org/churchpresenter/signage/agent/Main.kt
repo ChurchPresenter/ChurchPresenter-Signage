@@ -5,12 +5,10 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.websocket.WebSockets
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.io.IOException
-import java.time.Duration
-import java.time.Instant
+import java.nio.file.Path
+import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.system.exitProcess
 
@@ -29,7 +27,6 @@ fun main(args: Array<String>) {
     Log.info("Signage agent $AGENT_VERSION, player ${store.identity().playerId}, data in ${config.dataDir}")
 
     val engine = PlayerEngine(store, if (config.cec) CecCtl() else NoCec)
-    val kiosk = KioskServer(engine, store)
     val client = HttpClient(CIO) {
         install(WebSockets) { pingIntervalMillis = PING_MS }
         install(HttpTimeout) { connectTimeoutMillis = CONNECT_TIMEOUT_MS }
@@ -49,34 +46,26 @@ fun main(args: Array<String>) {
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
-    kiosk.start(config.kioskPort)
+    val player = MpvPlayer(engine.state, MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)))
     runBlocking(Dispatchers.IO) {
         launch { engine.probeCec().also { Log.info("CEC: ${engine.cecState}") } }
         launch { engine.run() }
         launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
-        launch { watchdog(kiosk, config.browserRestartCommand) }
+        launch { player.run() }
     }
 }
 
-/** Restarts the browser when the kiosk page stops asking for its state. */
-private suspend fun watchdog(kiosk: KioskServer, restart: List<String>) {
-    if (restart.isEmpty()) return
-    val started = Instant.now()
-    while (true) {
-        delay(WATCHDOG_EVERY_MS)
-        val last = kiosk.lastPoll ?: started
-        if (Duration.between(last, Instant.now()).toMillis() > PAGE_SILENT_MS) {
-            Log.warn("Kiosk page silent; restarting the browser")
-            try {
-                ProcessBuilder(restart).inheritIO().start()
-            } catch (e: IOException) {
-                Log.error("Browser restart failed", e)
-            }
-        }
-    }
+/**
+ * A named pipe on Windows; elsewhere a socket in the data folder, which only the agent's user can open,
+ * or in the temp folder when the data folder's path is too long for a socket's (about 100 bytes).
+ */
+private fun ipcPath(config: AgentConfig): Path {
+    if (System.getProperty("os.name").startsWith("Windows")) return Path("\\\\.\\pipe\\churchpresenter-signage-mpv")
+    val inData = config.dataDir.toAbsolutePath().resolve("mpv.sock")
+    return if (inData.toString().toByteArray().size <= MAX_SOCKET_PATH) inData
+    else Path(System.getProperty("java.io.tmpdir"), "churchpresenter-signage-mpv.sock")
 }
 
 private const val PING_MS = 15_000L
+private const val MAX_SOCKET_PATH = 100
 private const val CONNECT_TIMEOUT_MS = 5_000L
-private const val WATCHDOG_EVERY_MS = 30_000L
-private const val PAGE_SILENT_MS = 90_000L

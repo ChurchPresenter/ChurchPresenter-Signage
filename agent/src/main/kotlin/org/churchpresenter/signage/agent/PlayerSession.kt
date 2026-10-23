@@ -93,7 +93,7 @@ class PlayerSession(
             SessionNext.STAY
         }
         ServerMessage.Refresh -> {
-            engine.reloadPage()
+            engine.restartPlayer()
             SessionNext.STAY
         }
         is ServerMessage.UpdateAvailable -> {
