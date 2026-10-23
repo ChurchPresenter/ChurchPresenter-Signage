@@ -76,5 +76,16 @@ class PlayerStore(private val root: Path) {
         collectGarbage()
     }
 
+    /**
+     * Back to as installed: content gone, owner forgotten, and a new player id, so it pairs as a new
+     * screen. The installed versions in `app/` and a fixed ChurchPresenter address are kept.
+     */
+    fun factoryReset() {
+        val address = AtomicFiles.read(identityFile, PlayerIdentity.serializer())?.fixedAddress
+        clearContent()
+        identityFile.deleteIfExists()
+        address?.let { saveIdentity(identity().copy(fixedAddress = it)) }
+    }
+
     fun freeBytes(): Long = Files.getFileStore(root).usableSpace
 }

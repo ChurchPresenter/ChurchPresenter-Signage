@@ -14,7 +14,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.Closeable
 import java.io.IOException
+import java.awt.image.BufferedImage
 import java.nio.file.Path
+import javax.imageio.ImageIO
 import kotlin.io.path.deleteIfExists
 
 /**
@@ -24,6 +26,8 @@ import kotlin.io.path.deleteIfExists
 class MpvPlayer(
     private val state: StateFlow<ScreenState>,
     private val launcher: Launcher,
+    /** A black picture, shown when there is nothing else; see [MpvScene.commands]. */
+    private val blank: Path,
     private val restartDelayMs: Long = RESTART_DELAY_MS,
 ) {
     /** A running mpv the player can drive. */
@@ -77,7 +81,7 @@ class MpvPlayer(
         val exited = async { session.awaitExit() }
         val restartAsked = async {
             state.takeWhile { it.restartToken == token }.collect { next ->
-                session.send(MpvScene.commands(shown, next))
+                session.send(MpvScene.commands(shown, next, blank))
                 shown = next
             }
         }
@@ -90,6 +94,14 @@ class MpvPlayer(
 
     companion object {
         const val RESTART_DELAY_MS = 2_000L
+
+        /** Writes [MpvPlayer]'s black picture to [file]: 16×9 pixels, which mpv scales to the screen. */
+        fun writeBlank(file: Path): Path = file.also {
+            ImageIO.write(BufferedImage(BLANK_WIDTH, BLANK_HEIGHT, BufferedImage.TYPE_INT_RGB), "png", it.toFile())
+        }
+
+        private const val BLANK_WIDTH = 16
+        private const val BLANK_HEIGHT = 9
     }
 }
 

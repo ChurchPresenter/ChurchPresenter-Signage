@@ -14,6 +14,27 @@ application {
     applicationName = "churchpresenter-signage"
 }
 
+// AGENT_VERSION, from the build's version, so the agent says what it was released as.
+val generateVersion by tasks.registering {
+    val version = project.version.toString()
+    val out = layout.buildDirectory.dir("generated/version")
+    inputs.property("version", version)
+    outputs.dir(out)
+    doLast {
+        val file = out.get().file("org/churchpresenter/signage/agent/Version.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            "package org.churchpresenter.signage.agent\n\n" +
+                "/** This agent's version, set by the build. */\n" +
+                "const val AGENT_VERSION = \"$version\"\n",
+        )
+    }
+}
+
+kotlin.sourceSets.main {
+    kotlin.srcDir(generateVersion)
+}
+
 dependencies {
     implementation(projects.core)
     implementation(libs.kotlinx.serialization.json)

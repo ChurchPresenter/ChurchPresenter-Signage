@@ -37,11 +37,12 @@ The player's first message is `hello`. Then:
 | server | `override` | a manual switch, or `null` to release it |
 | server | `identify` | show the screen's name for a few seconds |
 | server | `refresh` | restart what draws the screen (mpv) |
+| server | `wipe` | delete everything stored (content, manifests, a manual switch) and fetch the manifest again; stays paired |
 | server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`preview`, `update`); ChurchPresenter sends
-`preview_request` and `update_available` only to players that list them. Both sides ignore message
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`); ChurchPresenter
+sends `wipe`, `preview_request` and `update_available` only to players that list them. Both sides ignore message
 types they do not know.
 
 ## Updates
@@ -62,7 +63,9 @@ repo secret `SIGNAGE_SIGNING_KEY`. Both ChurchPresenter and the player carry the
 
 ## Ownership
 A player stores the owner id it was paired with and refuses a manifest with any other `ownerId`.
-It accepts a new owner only after `released` or a factory reset.
+It accepts a new owner only after `released` or a factory reset. `released` (ChurchPresenter's
+Factory reset) deletes its content and forgets the owner; a factory reset on the device itself
+(`churchpresenter-signage-reset`) also gives it a new player id.
 
 ## Manifest
 See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete example.

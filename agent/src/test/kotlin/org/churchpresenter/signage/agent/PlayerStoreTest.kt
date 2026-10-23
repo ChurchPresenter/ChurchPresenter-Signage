@@ -109,4 +109,23 @@ class PlayerStoreTest {
         assertNull(store.manifest())
         assertTrue(root.resolve("manifest.json").exists())
     }
+
+    @Test
+    fun aFactoryResetForgetsEverythingButTheAddressAndTheApp() {
+        store.files.put(pictureA.sha, pictureA.bytes.inputStream())
+        store.commit(StoredManifest("v1", manifestOf(pictureA)))
+        store.saveIdentity(store.identity().copy(fixedAddress = "10.0.0.5:8765"))
+        val app = root.resolve("app/0.1.0").also { it.toFile().mkdirs() }
+        val before = store.identity().playerId
+
+        store.factoryReset()
+
+        val after = store.identity()
+        assertFalse(after.isPaired)
+        assertTrue(after.playerId != before, "a new player id, so it pairs as a new screen")
+        assertEquals("10.0.0.5:8765", after.fixedAddress)
+        assertNull(store.manifest())
+        assertFalse(store.files.has(pictureA.sha))
+        assertTrue(app.exists())
+    }
 }

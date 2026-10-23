@@ -1,34 +1,82 @@
-name: Release
+name: Build
 
-# Push a tag like v0.1.0. Builds the agent with its own Java runtime for each platform, checks each
-# bundle starts (on Linux, that it starts mpv and drives it), and publishes them with the install
-# script, SHA256SUMS, and signage-release.json signed with the SIGNAGE_SIGNING_KEY secret, which is
-# what ChurchPresenter and the players trust for updates. The install commands in README.md download
-# from the latest release.
+# Run by hand (Actions → Build → Run workflow), as ChurchPresenter's own Build. The version is worked
+# out as ChurchPresenter's is: the two-digit year, then the commit count split across two segments
+# (v26.0.42). It builds the agent with its own Java runtime for each platform and checks each bundle
+# starts (on Linux, that it starts mpv and drives it). With "Create a GitHub release" it tags the
+# version and publishes "ChurchPresenter Signage v26.0.42": the bundles
+# (ChurchPresenter-Signage-26.0.42-LINUX-arm64.tar.gz and so on), install.sh, SHA256SUMS, and
+# signage-release.json signed with the SIGNAGE_SIGNING_KEY secret, which ChurchPresenter and the
+# players trust for updates. The install commands in README.md download from the latest release.
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v26.0.42) — leave empty to auto-generate from commit count'
+        required: false
+        type: string
+        default: ''
+      release:
+        description: 'Create a GitHub release'
+        required: false
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+            [[ "$VERSION" != v* ]] && VERSION="v$VERSION"
+          else
+            COMMITS=$(git rev-list --count HEAD)
+            VERSION="v$(date +%y).$((COMMITS / 256)).$((COMMITS % 256))"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
   bundle:
+    needs: version
     strategy:
       fail-fast: true
       matrix:
         include:
           - os: ubuntu-24.04-arm
             platform: linux-arm64
+            suffix: LINUX-arm64
           - os: ubuntu-24.04
             platform: linux-x64
+            suffix: LINUX-x64
           - os: windows-latest
             platform: windows-x64
+            suffix: WINDOWS-x64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
@@ -37,19 +85,14 @@ jobs:
           distribution: 'temurin'
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
-      - name: Version matches the tag
-        run: |
-          code=$(sed -n 's/^const val AGENT_VERSION = "\(.*\)"/\1/p' agent/src/main/kotlin/org/churchpresenter/signage/agent/Main.kt)
-          test "v$code" = "$GITHUB_REF_NAME" || { echo "AGENT_VERSION $code does not match tag $GITHUB_REF_NAME"; exit 1; }
-
       - name: Test and build
-        run: ./gradlew :core:test :agent:test :agent:installDist --console=plain
+        run: ./gradlew :core:test :agent:test :agent:installDist -PsignageVersion="$VERSION" --console=plain
 
       - name: Bundle with a Java runtime
         run: |
           out=churchpresenter-signage
           cp -r agent/build/install/churchpresenter-signage "$out"
-          echo "${GITHUB_REF_NAME#v}" > "$out/VERSION"
+          echo "${VERSION#v}" > "$out/VERSION"
           cp install/launch.sh "$out/launch.sh"
           # java.desktop scales the Signage tab's previews (headless).
           "$JAVA_HOME/bin/jlink" \
@@ -64,7 +107,7 @@ jobs:
           if [ "${{ matrix.platform }}" = windows-x64 ]; then
             launcher=churchpresenter-signage/bin/churchpresenter-signage.bat
             # No mpv on the Windows runner: the agent must start and keep trying.
-            ready="Signage agent"
+            ready="Signage agent ${VERSION#v}"
           else
             launcher=churchpresenter-signage/bin/churchpresenter-signage
             sudo apt-get install -y -q --no-install-recommends mpv
@@ -76,46 +119,52 @@ jobs:
           for i in $(seq 1 60); do grep -q "$ready" "$log" && ok=1 && break; sleep 1; done
           kill %1 || true
           cat "$log"
+          grep -q "Signage agent ${VERSION#v}," "$log" || { echo "The agent does not say it is ${VERSION#v}"; exit 1; }
           test "$ok" = 1
 
       - name: Archive
         run: |
+          name="ChurchPresenter-Signage-${VERSION#v}-${{ matrix.suffix }}"
           if [ "${{ matrix.platform }}" = windows-x64 ]; then
-            7z a -tzip "churchpresenter-signage-${{ matrix.platform }}.zip" churchpresenter-signage
+            7z a -tzip "$name.zip" churchpresenter-signage
           else
-            tar czf "churchpresenter-signage-${{ matrix.platform }}.tar.gz" churchpresenter-signage
+            tar czf "$name.tar.gz" churchpresenter-signage
           fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundle-${{ matrix.platform }}
-          path: churchpresenter-signage-${{ matrix.platform }}.*
+          path: ChurchPresenter-Signage-*
 
   publish:
-    needs: bundle
+    needs: [version, bundle]
+    if: ${{ inputs.release }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
+
       - name: Write and sign the release index
         env:
           SIGNAGE_SIGNING_KEY: ${{ secrets.SIGNAGE_SIGNING_KEY }}
         run: |
           test -n "$SIGNAGE_SIGNING_KEY" || { echo "The SIGNAGE_SIGNING_KEY secret is not set"; exit 1; }
           protocol=$(sed -n 's/^const val PROTOCOL_VERSION = \([0-9]*\)$/\1/p' core/src/main/kotlin/org/churchpresenter/signage/core/Protocol.kt)
-          python3 - "${GITHUB_REF_NAME#v}" "$protocol" <<'EOF'
+          python3 - "${VERSION#v}" "$protocol" <<'EOF'
           import hashlib, json, os, sys
           version, protocol = sys.argv[1], int(sys.argv[2])
-          platforms = {"linux-arm64": "linux_arm64", "linux-x64": "linux_x64", "windows-x64": "windows_x64"}
+          platforms = {"LINUX-arm64": "linux_arm64", "LINUX-x64": "linux_x64", "WINDOWS-x64": "windows_x64"}
           assets = {}
           for name in sorted(os.listdir("dist")):
-              for key, platform in platforms.items():
-                  if name.startswith(f"churchpresenter-signage-{key}."):
+              for suffix, platform in platforms.items():
+                  if name.startswith(f"ChurchPresenter-Signage-{version}-{suffix}."):
                       data = open(os.path.join("dist", name), "rb").read()
                       assets[platform] = {"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
           index = {"version": version, "protocolMin": protocol, "protocolMax": protocol, "assets": assets}
@@ -131,7 +180,11 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           cp install/install.sh dist/
           (cd dist && sha256sum * > SHA256SUMS)
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          flags=()
+          [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+          gh release create "$VERSION" dist/* --target "$GITHUB_SHA" \
+            --title "ChurchPresenter Signage $VERSION" --generate-notes "${flags[@]}"

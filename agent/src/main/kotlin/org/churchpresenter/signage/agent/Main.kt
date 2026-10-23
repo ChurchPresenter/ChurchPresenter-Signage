@@ -16,8 +16,6 @@ import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.system.exitProcess
 
-const val AGENT_VERSION = "0.1.0"
-
 fun main(args: Array<String>) {
     // Previews are scaled with java.awt, which must not look for a display.
     System.setProperty("java.awt.headless", "true")
@@ -29,6 +27,11 @@ fun main(args: Array<String>) {
     }
     config.dataDir.createDirectories()
     val store = PlayerStore(config.dataDir)
+    if (config.factoryReset) {
+        store.factoryReset()
+        Log.info("Factory reset: content and pairing removed; the player pairs as a new screen")
+        return
+    }
     config.address?.let { store.saveIdentity(store.identity().copy(fixedAddress = it)) }
     Log.info("Signage agent $AGENT_VERSION, player ${store.identity().playerId}, data in ${config.dataDir}")
 
@@ -39,7 +42,11 @@ fun main(args: Array<String>) {
     }
     var address: String? = null
     val platform = AgentConfig.currentPlatform()
-    val player = MpvPlayer(engine.state, MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)))
+    val player = MpvPlayer(
+        engine.state,
+        MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)),
+        MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
+    )
     val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession

@@ -74,6 +74,7 @@ class WireFormatTest {
                 "0.2.0", 1, 2, "b".repeat(64), "/a", release = "{}", releaseSignature = "c2ln",
             ),
             ServerMessage.PreviewRequest(),
+            ServerMessage.Wipe,
         )
         messages.forEach { message ->
             val text = SignageJson.encodeToString(ServerMessage.serializer(), message)

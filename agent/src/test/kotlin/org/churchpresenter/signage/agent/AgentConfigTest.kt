@@ -5,6 +5,8 @@ import kotlin.io.path.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AgentConfigTest {
     @Test
@@ -32,6 +34,12 @@ class AgentConfigTest {
         assertEquals(emptyList(), config.mpvArgs)
         assertEquals(true, config.cec)
         assertEquals(null, AgentConfig.parse(listOf("--address", " "), Platform.LINUX_X64).address)
+    }
+
+    @Test
+    fun aFactoryResetIsAskedForByFlag() {
+        assertTrue(AgentConfig.parse(listOf("--factory-reset"), Platform.LINUX_X64).factoryReset)
+        assertFalse(AgentConfig.parse(emptyList(), Platform.LINUX_X64).factoryReset)
     }
 
     @Test

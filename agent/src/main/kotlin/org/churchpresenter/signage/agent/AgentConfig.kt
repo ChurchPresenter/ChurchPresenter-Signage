@@ -19,6 +19,8 @@ data class AgentConfig(
      * `--vo=gpu --gpu-context=drm`.
      */
     val mpvArgs: List<String> = emptyList(),
+    /** Run once to wipe the player back to as installed, then exit; see [PlayerStore.factoryReset]. */
+    val factoryReset: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_MPV = "mpv"
@@ -27,7 +29,7 @@ data class AgentConfig(
 
         /**
          * Reads `--data <dir> --address <host:port> --no-cec --screen <w>x<h> --mpv <path>
-         * --mpv-args "<options>"`. Throws [IllegalArgumentException] on anything else.
+         * --mpv-args "<options>" --factory-reset`. Throws [IllegalArgumentException] on anything else.
          */
         fun parse(args: List<String>, platform: Platform = currentPlatform()): AgentConfig {
             var config = AgentConfig(defaultDataDir(platform))
@@ -44,6 +46,7 @@ data class AgentConfig(
                     }
                     "--mpv" -> config.copy(mpv = value(flag))
                     "--mpv-args" -> config.copy(mpvArgs = value(flag).split(' ').filter(String::isNotBlank))
+                    "--factory-reset" -> config.copy(factoryReset = true)
                     else -> throw IllegalArgumentException("unknown argument $flag")
                 }
             }
