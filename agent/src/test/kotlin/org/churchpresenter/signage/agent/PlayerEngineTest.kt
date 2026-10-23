@@ -33,20 +33,20 @@ class PlayerEngineTest {
     fun withNoManifestTheIdleCardCarriesTheMessage() {
         val engine = engine()
         engine.setMessage("code 1234")
-        assertEquals(KioskState(KioskMode.IDLE, message = "code 1234"), engine.state.value)
+        assertEquals(ScreenState(ScreenMode.IDLE, message = "code 1234"), engine.state.value)
         assertNull(engine.decision)
         assertEquals(emptyList(), cec.sent)
     }
 
     @Test
-    fun theDefaultPlaylistReachesThePage() {
+    fun theDefaultPlaylistReachesTheScreen() {
         install(pictureA, pictureB)
         val engine = engine()
         engine.tick()
         val state = engine.state.value
-        assertEquals(KioskMode.PLAYLIST, state.mode)
+        assertEquals(ScreenMode.PLAYLIST, state.mode)
         assertEquals("welcome", state.playlistId)
-        assertEquals(listOf("/files/${pictureA.sha}", "/files/${pictureB.sha}"), state.items.map { it.url })
+        assertEquals(listOf(pictureA, pictureB).map { root.resolve("files/${it.sha}") }, state.items.map { it.file })
         assertEquals(Reason.DEFAULT, engine.decision?.reason)
         assertEquals(CecState.WORKING, engine.cecState)
     }
@@ -59,7 +59,7 @@ class PlayerEngineTest {
         clock.now = instant("2026-10-19T22:00")
         engine.tick()
         engine.tick()
-        assertEquals(KioskMode.BLANK, engine.state.value.mode)
+        assertEquals(ScreenMode.BLANK, engine.state.value.mode)
         clock.now = instant("2026-10-20T06:00")
         engine.tick()
         assertEquals(listOf(CecCommand.STANDBY, CecCommand.POWER_ON), cec.sent)
@@ -72,7 +72,7 @@ class PlayerEngineTest {
         val engine = engine()
         root.resolve("files/${pictureA.sha}").toFile().delete()
         engine.tick()
-        assertEquals(KioskMode.IDLE, engine.state.value.mode)
+        assertEquals(ScreenMode.IDLE, engine.state.value.mode)
     }
 
     @Test
@@ -98,10 +98,10 @@ class PlayerEngineTest {
     }
 
     @Test
-    fun aRefreshBumpsTheReloadToken() {
+    fun aRefreshBumpsTheRestartToken() {
         val engine = engine()
-        engine.reloadPage()
-        assertEquals(1, engine.state.value.reloadToken)
+        engine.restartPlayer()
+        assertEquals(1, engine.state.value.restartToken)
     }
 
     @Test

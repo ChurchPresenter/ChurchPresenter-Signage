@@ -89,7 +89,7 @@ class PlayerSessionTest {
         assertFalse(store.identity().isPaired)
         assertNull(store.manifest())
         assertNull(store.override())
-        assertEquals(KioskMode.IDLE, engine.state.value.mode)
+        assertEquals(ScreenMode.IDLE, engine.state.value.mode)
         assertTrue(session.pairingCode in engine.state.value.message.orEmpty())
     }
 
@@ -105,14 +105,14 @@ class PlayerSessionTest {
         val override = ScreenOverride(OverrideAction.TvOff, setAtMs = clock.now.toEpochMilli())
         assertEquals(SessionNext.STAY, session.handle(ServerMessage.SetOverride(override)))
         assertEquals(override, store.override())
-        assertEquals(KioskMode.BLANK, engine.state.value.mode)
+        assertEquals(ScreenMode.BLANK, engine.state.value.mode)
         session.handle(ServerMessage.SetOverride(null))
-        assertEquals(KioskMode.PLAYLIST, engine.state.value.mode)
+        assertEquals(ScreenMode.PLAYLIST, engine.state.value.mode)
 
         session.handle(ServerMessage.Identify(5))
         assertEquals("Lobby", engine.state.value.identify)
         session.handle(ServerMessage.Refresh)
-        assertEquals(1, engine.state.value.reloadToken)
+        assertEquals(1, engine.state.value.restartToken)
         val update = ServerMessage.UpdateAvailable("0.2.0", 1, 1, "a".repeat(64), "/x")
         assertEquals(SessionNext.STAY, session.handle(update))
     }

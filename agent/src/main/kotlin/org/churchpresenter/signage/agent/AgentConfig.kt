@@ -7,23 +7,27 @@ import kotlin.io.path.Path
 /** How the agent was started: the service file's arguments. */
 data class AgentConfig(
     val dataDir: Path,
-    val kioskPort: Int = DEFAULT_KIOSK_PORT,
     /** `host:port` of ChurchPresenter, when mDNS cannot reach it. Saved into the identity on start. */
     val address: String? = null,
     val cec: Boolean = true,
     val screenWidth: Int = DEFAULT_WIDTH,
     val screenHeight: Int = DEFAULT_HEIGHT,
-    /** Run when the kiosk page has not asked for its state in a while, to restart the browser. */
-    val browserRestartCommand: List<String> = emptyList(),
+    /** The mpv to run, a path or a name on `PATH`. */
+    val mpv: String = DEFAULT_MPV,
+    /**
+     * Added to the player's own mpv options: how this machine reaches its screen, e.g.
+     * `--vo=gpu --gpu-context=drm`.
+     */
+    val mpvArgs: List<String> = emptyList(),
 ) {
     companion object {
-        const val DEFAULT_KIOSK_PORT = 8090
+        const val DEFAULT_MPV = "mpv"
         const val DEFAULT_WIDTH = 1920
         const val DEFAULT_HEIGHT = 1080
 
         /**
-         * Reads `--data <dir> --kiosk-port <n> --address <host:port> --no-cec --screen <w>x<h>
-         * --browser-restart "<command>"`. Throws [IllegalArgumentException] on anything else.
+         * Reads `--data <dir> --address <host:port> --no-cec --screen <w>x<h> --mpv <path>
+         * --mpv-args "<options>"`. Throws [IllegalArgumentException] on anything else.
          */
         fun parse(args: List<String>, platform: Platform = currentPlatform()): AgentConfig {
             var config = AgentConfig(defaultDataDir(platform))
@@ -32,15 +36,14 @@ data class AgentConfig(
             while (queue.isNotEmpty()) {
                 config = when (val flag = queue.removeFirst()) {
                     "--data" -> config.copy(dataDir = Path(value(flag)))
-                    "--kiosk-port" -> config.copy(kioskPort = requireNotNull(value(flag).toIntOrNull()) { "bad port" })
                     "--address" -> config.copy(address = value(flag).takeIf { it.isNotBlank() })
                     "--no-cec" -> config.copy(cec = false)
                     "--screen" -> {
                         val (w, h) = value(flag).split('x').map { requireNotNull(it.toIntOrNull()) { "bad --screen" } }
                         config.copy(screenWidth = w, screenHeight = h)
                     }
-                    "--browser-restart" ->
-                        config.copy(browserRestartCommand = value(flag).split(' ').filter(String::isNotBlank))
+                    "--mpv" -> config.copy(mpv = value(flag))
+                    "--mpv-args" -> config.copy(mpvArgs = value(flag).split(' ').filter(String::isNotBlank))
                     else -> throw IllegalArgumentException("unknown argument $flag")
                 }
             }

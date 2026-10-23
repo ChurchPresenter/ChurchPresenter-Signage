@@ -1,8 +1,8 @@
 name: Release
 
 # Push a tag like v0.1.0. Builds the agent with its own Java runtime for each platform, checks each
-# bundle starts and serves its kiosk page, and publishes them with the install scripts and
-# SHA256SUMS. The install commands in README.md download from the latest release.
+# bundle starts (on Linux, that it starts mpv and drives it), and publishes them with the install
+# script and SHA256SUMS. The install commands in README.md download from the latest release.
 
 on:
   push:
@@ -52,13 +52,25 @@ jobs:
             --strip-debug --no-header-files --no-man-pages --compress zip-6 \
             --output "$out/runtime"
 
-      - name: Bundle starts and serves its page
+      - name: Bundle starts and drives mpv
         run: |
           data=$(mktemp -d)
-          if [ "${{ matrix.platform }}" = windows-x64 ]; then launcher=churchpresenter-signage/bin/churchpresenter-signage.bat; else launcher=churchpresenter-signage/bin/churchpresenter-signage; fi
-          JAVA_HOME="$PWD/churchpresenter-signage/runtime" "$launcher" --data "$data" --no-cec --kiosk-port 18090 --address 127.0.0.1:1 &
-          for i in $(seq 1 60); do curl -sf http://127.0.0.1:18090/state && ok=1 && break; sleep 1; done
+          log="$data/agent.log"
+          if [ "${{ matrix.platform }}" = windows-x64 ]; then
+            launcher=churchpresenter-signage/bin/churchpresenter-signage.bat
+            # No mpv on the Windows runner: the agent must start and keep trying.
+            ready="Signage agent"
+          else
+            launcher=churchpresenter-signage/bin/churchpresenter-signage
+            sudo apt-get install -y -q --no-install-recommends mpv
+            ready="mpv started"
+          fi
+          JAVA_HOME="$PWD/churchpresenter-signage/runtime" "$launcher" --data "$data" --no-cec \
+            --address 127.0.0.1:1 --mpv-args "--vo=null" > "$log" 2>&1 &
+          ok=0
+          for i in $(seq 1 60); do grep -q "$ready" "$log" && ok=1 && break; sleep 1; done
           kill %1 || true
+          cat "$log"
           test "$ok" = 1
 
       - name: Archive
@@ -89,6 +101,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp install/install.sh install/install.ps1 dist/
+          cp install/install.sh dist/
           (cd dist && sha256sum * > SHA256SUMS)
           gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes

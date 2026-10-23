@@ -36,9 +36,6 @@ On a fresh **Debian** or **Ubuntu Server**, minimal, with no desktop installed:
 curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash
 ```
 
-On Ubuntu the screen uses Firefox from Mozilla's own packages, since Ubuntu's Chromium is a snap
-that cannot run as a kiosk.
-
 **No `curl`?** Use `wget` instead:
 
 ```bash
@@ -47,17 +44,6 @@ wget -qO- https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/la
 
 **No `sudo`?** (Debian when a root password was set during install.) Sign in as root first with
 `su -`, then run either command without `sudo`.
-
-### Mini PC — Windows 10/11
-
-Open **PowerShell as administrator** and run:
-
-```powershell
-irm https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.ps1 | iex
-```
-
-Then set Windows to sign in automatically (the installer links to how), so the screen comes back by
-itself after a power cut.
 
 ### When ChurchPresenter is on another network
 

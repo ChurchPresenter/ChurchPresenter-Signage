@@ -86,7 +86,7 @@ sealed interface ServerMessage {
         }
     }
 
-    /** Reloads the kiosk page. */
+    /** Restarts what draws the screen. */
     @Serializable
     @SerialName("refresh")
     data object Refresh : ServerMessage

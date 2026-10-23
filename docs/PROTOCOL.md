@@ -34,7 +34,7 @@ The player's first message is `hello`. Then:
 | server | `manifest_changed` | a newer manifest is waiting |
 | server | `override` | a manual switch, or `null` to release it |
 | server | `identify` | show the screen's name for a few seconds |
-| server | `refresh` | reload the kiosk page |
+| server | `refresh` | restart what draws the screen (mpv) |
 | server | `update_available` | an agent build, its protocol range, hash and path |
 
 ## Ownership
