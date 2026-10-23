@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.churchpresenter.signage.core.MediaKind
 import org.churchpresenter.signage.core.Orientation
 import kotlin.io.path.Path
+import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -24,7 +25,10 @@ class MpvSceneTest {
             is JsonArray -> command.joinToString(" ") { it.jsonPrimitive.content }
             is JsonObject -> when (command["name"]?.jsonPrimitive?.content) {
                 "osd-overlay" -> "overlay ${command["id"]} ${command["format"]?.jsonPrimitive?.content}"
-                else -> listOfNotNull("url", "flags", "options").mapNotNull { command[it]?.jsonPrimitive?.content }
+                // The file as written with forward slashes, so the lines read the same on Windows.
+                else -> listOfNotNull("url", "flags", "options")
+                    .mapNotNull { command[it]?.jsonPrimitive?.content }
+                    .mapIndexed { i, part -> if (i == 0) Path(part).invariantSeparatorsPathString else part }
                     .joinToString(" ", prefix = "loadfile ")
             }
             else -> error("unexpected $command")

@@ -20,6 +20,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.name
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,8 +75,17 @@ class UpdaterTest {
 
     private fun current() = Files.readSymbolicLink(root.resolve("app/current")).name
 
+    /**
+     * Switching versions moves a new link over `current`, which Windows refuses. The app folder and
+     * its launcher are Linux's: a Windows player is the desktop app, updated by its installer, whose
+     * install has no `current` link and so never offers [Features.UPDATE][org.churchpresenter.signage.core.Features].
+     */
+    private fun linuxOnly() =
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"), "switching versions is Linux's")
+
     @Test
     fun aSignedBuildIsInstalledBesideTheOldOneAndStartedNext() = runTest {
+        linuxOnly()
         updater().install(offer())
         assertEquals(
             listOf(UpdateState.DOWNLOADING, UpdateState.CHECKING, UpdateState.INSTALLING, UpdateState.RESTARTING),
@@ -132,6 +142,7 @@ class UpdaterTest {
 
     @Test
     fun theFolderKeepsTwoVersionsAndTheLaunchersMarkers() {
+        linuxOnly()
         root.resolve("app/0.0.9").createDirectories()
         root.resolve("app/.download-0.3.0").writeText("partial")
         app.install("0.2.0", root.resolve("app/.staging").createDirectories())
