@@ -58,6 +58,9 @@ filter on it.
   installers: `ChurchPresenter-Signage-26.0.42-LINUX-arm64.tar.gz`, `…-LINUX-x64.tar.gz`,
   `…-WINDOWS-x64.zip`; the release is "ChurchPresenter Signage v26.0.42". `install.sh` finds its
   bundle by that name in the release's `SHA256SUMS`.
+- `.github/workflows/nightly.yml` runs that same Build (`workflow_call`) at 03:00 UTC when `main` has
+  commits the newest release does not, so every merged change ships within a day as a numbered
+  release. A night with nothing new builds nothing.
 - `install.sh` also installs `/usr/local/sbin/churchpresenter-signage-reset`, the factory reset on
   the device (`--factory-reset`, `PlayerStore.factoryReset`).
 - **Updates are signed.** The publish job writes `signage-release.json` and signs it with the repo

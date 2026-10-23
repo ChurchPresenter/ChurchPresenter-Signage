@@ -1,0 +1,53 @@
+name: Nightly
+
+# Every night, a full release of whatever main has gained since the last one: the Build workflow,
+# exactly as run by hand, numbered by the commit count ("ChurchPresenter Signage v26.0.42"). A night
+# on which main has not moved since the newest release builds nothing. Screens are only offered the
+# new version; none updates until someone presses Update in ChurchPresenter's Signage tab.
+# A manual dispatch always builds.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changed:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Has main moved since the last release?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          latest=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$latest" ]; then
+            changed=true
+          elif ! git rev-parse -q --verify "refs/tags/$latest" >/dev/null; then
+            changed=true
+          else
+            new=$(git rev-list --count "$latest..HEAD")
+            echo "$new commits since $latest"
+            changed=$([ "$new" -gt 0 ] && echo true || echo false)
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: changed
+    if: ${{ needs.changed.outputs.changed == 'true' }}
+    uses: ./.github/workflows/build.yml
+    with:
+      release: true
+    secrets: inherit
+    permissions:
+      contents: write
