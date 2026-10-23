@@ -53,6 +53,10 @@ kotlin.sourceSets.main {
     kotlin.srcDir(generateVersion)
 }
 
+// The Sentry plugin's source bundle reads every source folder, the generated one too, so it must
+// come after; Gradle refuses a build where it is not said.
+tasks.matching { it.name.contains("Sentry") }.configureEach { dependsOn(generateVersion) }
+
 dependencies {
     implementation(projects.core)
     implementation(libs.kotlinx.serialization.json)
