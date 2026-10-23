@@ -4,9 +4,13 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.websocket.WebSockets
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -15,6 +19,8 @@ import kotlin.system.exitProcess
 const val AGENT_VERSION = "0.1.0"
 
 fun main(args: Array<String>) {
+    // Previews are scaled with java.awt, which must not look for a display.
+    System.setProperty("java.awt.headless", "true")
     val config = try {
         AgentConfig.parse(args.toList())
     } catch (e: IllegalArgumentException) {
@@ -32,10 +38,30 @@ fun main(args: Array<String>) {
         install(HttpTimeout) { connectTimeoutMillis = CONNECT_TIMEOUT_MS }
     }
     var address: String? = null
-    val session = PlayerSession(
+    val platform = AgentConfig.currentPlatform()
+    val player = MpvPlayer(engine.state, MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)))
+    val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
+    val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    lateinit var session: PlayerSession
+    val updater = Updater(
+        app = app,
+        platform = platform,
+        fetch = { path, consume ->
+            val token = store.identity().token ?: throw IOException("not paired")
+            val at = address ?: throw IOException("not connected")
+            HttpContentSource(client, "http://$at", token).download(path, consume)
+        },
+        report = { session.outgoing.trySend(it) },
+        restart = {
+            // Time for the last progress message to reach ChurchPresenter; the service starts the new version.
+            Thread.sleep(RESTART_GRACE_MS)
+            exitProcess(0)
+        },
+    )
+    session = PlayerSession(
         store = store,
         engine = engine,
-        agent = AgentInfo(AGENT_VERSION, AgentConfig.currentPlatform(), config.screenWidth, config.screenHeight),
+        agent = AgentInfo(AGENT_VERSION, platform, config.screenWidth, config.screenHeight),
         sync = {
             val token = store.identity().token
             val at = address
@@ -43,15 +69,23 @@ fun main(args: Array<String>) {
                 ManifestSync(store, HttpContentSource(client, "http://$at", token)).sync()
             }
         },
+        previews = PreviewMaker(player::screenshot, config.dataDir),
+        updater = updater,
+        app = app,
+        background = background,
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
-    val player = MpvPlayer(engine.state, MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config)))
     runBlocking(Dispatchers.IO) {
         launch { engine.probeCec().also { Log.info("CEC: ${engine.cecState}") } }
         launch { engine.run() }
         launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
         launch { player.run() }
+        launch {
+            // A new version that has run this long without crashing counts as healthy even unpaired.
+            delay(HEALTHY_AFTER_MS)
+            app.markHealthy()
+        }
     }
 }
 
@@ -67,5 +101,7 @@ private fun ipcPath(config: AgentConfig): Path {
 }
 
 private const val PING_MS = 15_000L
+private const val RESTART_GRACE_MS = 1_000L
+private const val HEALTHY_AFTER_MS = 120_000L
 private const val MAX_SOCKET_PATH = 100
 private const val CONNECT_TIMEOUT_MS = 5_000L

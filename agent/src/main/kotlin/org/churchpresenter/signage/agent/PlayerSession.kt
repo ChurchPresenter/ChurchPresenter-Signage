@@ -1,9 +1,15 @@
 package org.churchpresenter.signage.agent
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import org.churchpresenter.signage.core.Features
 import org.churchpresenter.signage.core.PROTOCOL_VERSION
 import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.Platform
 import org.churchpresenter.signage.core.ServerMessage
+import org.churchpresenter.signage.core.UpdateState
 import kotlin.random.Random
 
 /** What this agent tells ChurchPresenter about itself in its hello. */
@@ -22,7 +28,21 @@ class PlayerSession(
     private val agent: AgentInfo,
     private val sync: suspend () -> SyncResult,
     random: Random = Random.Default,
+    private val previews: PreviewMaker? = null,
+    private val updater: Updater? = null,
+    private val app: AppFolder? = null,
+    /** Where a long job, an update, runs, so the connection keeps answering meanwhile. */
+    private val background: CoroutineScope? = null,
 ) {
+    /** Messages for ChurchPresenter that are not answers to its own: previews and update progress. */
+    val outgoing = Channel<PlayerMessage>(OUTGOING_CAPACITY, BufferOverflow.DROP_OLDEST)
+
+    /** What this player can do beyond the basics, as its hello lists it. */
+    val features: List<String> = listOfNotNull(
+        Features.PREVIEW.takeIf { previews != null },
+        Features.UPDATE.takeIf { updater != null && app?.canUpdate() == true },
+    )
+
     /** Shown on the TV while unpaired; the same for the whole run so the operator can match it. */
     val pairingCode: String = random.nextInt(PAIRING_CODE_RANGE).toString().padStart(PAIRING_CODE_DIGITS, '0')
 
@@ -38,6 +58,7 @@ class PlayerSession(
             screenHeight = agent.screenHeight,
             platform = agent.platform,
             pairingCode = if (identity.isPaired) null else pairingCode,
+            features = features,
         )
     }
 
@@ -45,6 +66,11 @@ class PlayerSession(
     suspend fun onConnected() {
         if (store.identity().isPaired) {
             engine.setMessage(null)
+            app?.markHealthy()
+            app?.takeRolledBack()?.let { version ->
+                val why = "it did not start, so ${agent.version} is back"
+                outgoing.trySend(PlayerMessage.UpdateProgress(version, UpdateState.ROLLED_BACK, why))
+            }
             syncAndReload()
         }
     }
@@ -96,8 +122,17 @@ class PlayerSession(
             engine.restartPlayer()
             SessionNext.STAY
         }
+        is ServerMessage.PreviewRequest -> {
+            previews?.make(message.maxWidth)?.let { outgoing.trySend(it) }
+            SessionNext.STAY
+        }
         is ServerMessage.UpdateAvailable -> {
-            Log.info("Agent ${message.agentVersion} is available; updates arrive in a later version")
+            val run = updater
+            if (run == null || background == null) {
+                Log.info("Agent ${message.agentVersion} is available; this player does not update itself")
+            } else {
+                background.launch { run.install(message) }
+            }
             SessionNext.STAY
         }
     }
@@ -151,6 +186,7 @@ class PlayerSession(
     }
 
     private companion object {
+        const val OUTGOING_CAPACITY = 16
         const val PAIRING_CODE_RANGE = 10_000
         const val PAIRING_CODE_DIGITS = 4
         const val SHORT_HASH = 8

@@ -1,13 +1,23 @@
 package org.churchpresenter.signage.agent
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
+import org.churchpresenter.signage.core.Features
 import org.churchpresenter.signage.core.OverrideAction
 import org.churchpresenter.signage.core.PROTOCOL_VERSION
 import org.churchpresenter.signage.core.Platform
+import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.ScreenOverride
 import org.churchpresenter.signage.core.ServerMessage
+import org.churchpresenter.signage.core.UpdateState
+import java.awt.image.BufferedImage
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
+import kotlin.io.path.writeBytes
+import kotlin.io.path.writeText
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -116,6 +126,68 @@ class PlayerSessionTest {
         val update = ServerMessage.UpdateAvailable("0.2.0", 1, 1, "a".repeat(64), "/x")
         assertEquals(SessionNext.STAY, session.handle(update))
     }
+
+    @Test
+    fun aPlayerListsOnlyWhatItCanDo() = runTest {
+        assertEquals(emptyList(), session.hello().features)
+        val app = AppFolder(root.resolve("app"))
+        val withPreview = sessionWith(previews = PreviewMaker({ false }, root), app = app)
+        assertEquals(listOf(Features.PREVIEW), withPreview.hello().features)
+        root.resolve("app/0.1.0").createDirectories()
+        Files.createSymbolicLink(root.resolve("app/current"), Path.of("0.1.0"))
+        val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
+        assertEquals(
+            listOf(Features.PREVIEW, Features.UPDATE),
+            sessionWith(app = app, previews = PreviewMaker({ false }, root), updater = updater).hello().features,
+        )
+    }
+
+    @Test
+    fun aPreviewRequestIsAnsweredOnTheSide() = runTest {
+        val screen = PreviewMaker.jpeg(BufferedImage(960, 540, BufferedImage.TYPE_INT_RGB))
+        val withPreview = sessionWith(previews = PreviewMaker({ file -> file.writeBytes(screen); true }, root))
+        assertEquals(SessionNext.STAY, withPreview.handle(ServerMessage.PreviewRequest(maxWidth = 320)))
+        val preview = withPreview.outgoing.tryReceive().getOrNull() as PlayerMessage.Preview
+        assertEquals(320, preview.width)
+    }
+
+    @Test
+    fun anUpdateRunsInTheBackgroundAndReportsBack() = runTest {
+        val app = AppFolder(root.resolve("app"))
+        lateinit var updating: PlayerSession
+        val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, { updating.outgoing.trySend(it) }, {})
+        updating = sessionWith(app = app, updater = updater, background = backgroundScope)
+        updating.handle(ServerMessage.UpdateAvailable("0.2.0", 1, 1, "a".repeat(64), "/x"))
+        testScheduler.advanceUntilIdle()
+        val progress = updating.outgoing.receive() as PlayerMessage.UpdateProgress
+        assertEquals(UpdateState.FAILED, progress.state)
+    }
+
+    @Test
+    fun aRollbackIsReportedOnceConnected() = runTest {
+        val app = AppFolder(root.resolve("app").createDirectories())
+        root.resolve("app/rolled-back").writeText("0.2.0")
+        val rolled = sessionWith(app = app)
+        rolled.onConnected()
+        val progress = rolled.outgoing.tryReceive().getOrNull() as PlayerMessage.UpdateProgress
+        assertEquals("0.2.0" to UpdateState.ROLLED_BACK, progress.version to progress.state)
+        assertNull(app.takeRolledBack())
+    }
+
+    private fun sessionWith(
+        previews: PreviewMaker? = null,
+        updater: Updater? = null,
+        app: AppFolder? = null,
+        background: CoroutineScope? = null,
+    ) = PlayerSession(
+        store, engine, AgentInfo("0.1.0", Platform.LINUX_ARM64, 1920, 1080),
+        sync = { ManifestSync(store, source).sync() },
+        random = Random(7),
+        previews = previews,
+        updater = updater,
+        app = app,
+        background = background,
+    )
 
     @Test
     fun anUnsupportedOrRejectedServerWaitsLong() = runTest {

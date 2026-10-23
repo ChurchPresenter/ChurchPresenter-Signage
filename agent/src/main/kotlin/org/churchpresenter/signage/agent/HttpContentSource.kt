@@ -41,6 +41,13 @@ class HttpContentSource(
             response.bodyAsChannel().toInputStream().use(consume)
         }
 
+    /** Anything else ChurchPresenter serves the player at [path], e.g. an agent build. */
+    suspend fun download(path: String, consume: (InputStream) -> Unit) =
+        client.prepareGet("$baseUrl$path") { bearerAuth(token) }.execute { response ->
+            response.requireOk()
+            response.bodyAsChannel().toInputStream().use(consume)
+        }
+
     private fun HttpResponse.requireOk() {
         if (!status.isSuccess()) throw IOException("HTTP ${status.value}")
     }

@@ -12,7 +12,7 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
 
 The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
 (`Fixtures.kt`) and never a real mpv; `MpvIpcTest` talks to a Unix socket of its own, `MpvPlayerTest` to a
@@ -28,12 +28,18 @@ start; never anything in a Service block. A TV on another HDMI input must never 
 
 ## Install and release
 - `install/install.sh` (Pi and Linux mini PCs: mpv on DRM/KMS with no desktop, one systemd unit in
-  a console session on tty1). The README's copy-paste commands fetch it from
+  a console session on tty1). The player lives in the data folder as `app/<version>/` with a
+  `current` link, started by `install/launch.sh` (shipped inside each bundle), which rolls back an
+  update that does not become healthy; `AppFolder` and `launch.sh` share the file names. The README's copy-paste commands fetch it from
   `releases/latest/download/`, so renaming it breaks every README link and every update. Windows
   and macOS get the desktop app (not yet built).
 - `.github/workflows/release.yml` runs on a `v*` tag that matches `AGENT_VERSION`: one bundle per
   platform (installDist + a jlinked runtime), each smoke-started, then `SHA256SUMS` and a release.
-- Not yet: signing (phase 3) and the read-only system disk.
+- **Updates are signed.** The publish job writes `signage-release.json` and signs it with the repo
+  secret `SIGNAGE_SIGNING_KEY` (an Ed25519 private key, PKCS#8 PEM); a release fails without it. The
+  public key is `ReleaseSigning.PUBLIC_KEY` in `:core`, and ChurchPresenter's copy of core must
+  carry the same one. Changing the key means every installed player must be reinstalled.
+- Not yet: the read-only system disk.
 
 ## The wire format is a contract
 ChurchPresenter keeps its **own copy** of the wire types (as ChurchPresenter-Mobile does for the

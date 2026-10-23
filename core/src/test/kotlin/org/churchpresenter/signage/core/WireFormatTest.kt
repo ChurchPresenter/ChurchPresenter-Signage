@@ -70,6 +70,10 @@ class WireFormatTest {
             ServerMessage.Refresh,
             ServerMessage.Unsupported(PROTOCOL_VERSION),
             ServerMessage.UpdateAvailable("0.2.0", 1, 2, "b".repeat(64), "/api/signage/agent/linux_arm64"),
+            ServerMessage.UpdateAvailable(
+                "0.2.0", 1, 2, "b".repeat(64), "/a", release = "{}", releaseSignature = "c2ln",
+            ),
+            ServerMessage.PreviewRequest(),
         )
         messages.forEach { message ->
             val text = SignageJson.encodeToString(ServerMessage.serializer(), message)
@@ -83,6 +87,26 @@ class WireFormatTest {
                 ServerMessage.SetOverride(ScreenOverride(OverrideAction.TvOff, setAtMs = 7)),
             ),
         )
+    }
+
+    @Test
+    fun theNewPlayerMessagesRoundTrip() {
+        val messages = listOf(
+            PlayerMessage.Preview("/9j/", 480, 270, 1_000),
+            PlayerMessage.UpdateProgress("0.2.0", UpdateState.ROLLED_BACK, "did not start"),
+            PlayerMessage.Hello(
+                "p", "0.2.0", 1, 1, null, 1920, 1080, Platform.LINUX_X64, features = listOf(Features.PREVIEW),
+            ),
+        )
+        messages.forEach { message ->
+            val text = SignageJson.encodeToString(PlayerMessage.serializer(), message)
+            assertEquals(message, SignageJson.decodeFromString(PlayerMessage.serializer(), text), text)
+        }
+        // A 0.1.0 player's hello has no features, and still reads.
+        val old = """{"type":"hello","playerId":"p","agentVersion":"0.1.0","protocolMin":1,"protocolMax":1,""" +
+            """"screenWidth":1920,"screenHeight":1080,"platform":"linux_x64"}"""
+        val hello = SignageJson.decodeFromString(PlayerMessage.serializer(), old) as PlayerMessage.Hello
+        assertEquals(emptyList(), hello.features)
     }
 
     @Test

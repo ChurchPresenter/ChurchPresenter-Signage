@@ -25,6 +25,8 @@ sealed interface PlayerMessage {
         val platform: Platform,
         /** Shown on the TV and in the Signage tab while an unpaired player waits for approval. */
         val pairingCode: String? = null,
+        /** What it can do beyond the basics, from [Features]; ChurchPresenter offers only those. */
+        val features: List<String> = emptyList(),
     ) : PlayerMessage
 
     @Serializable
@@ -38,6 +40,52 @@ sealed interface PlayerMessage {
         val cec: CecState = CecState.UNKNOWN,
         val errors: List<String> = emptyList(),
     ) : PlayerMessage
+
+    /** The answer to [ServerMessage.PreviewRequest]: what the screen shows, as a small JPEG. */
+    @Serializable
+    @SerialName("preview")
+    data class Preview(
+        val jpegBase64: String,
+        val width: Int,
+        val height: Int,
+        val takenAtMs: Long,
+    ) : PlayerMessage
+
+    /** How an update sent with [ServerMessage.UpdateAvailable] is going. */
+    @Serializable
+    @SerialName("update_progress")
+    data class UpdateProgress(
+        val version: String,
+        val state: UpdateState,
+        /** Why it failed or was rolled back; a percentage while downloading. */
+        val message: String? = null,
+    ) : PlayerMessage
+}
+
+/** What a player lists in [PlayerMessage.Hello.features]. */
+object Features {
+    /** Answers [ServerMessage.PreviewRequest]. */
+    const val PREVIEW = "preview"
+
+    /** Installs [ServerMessage.UpdateAvailable] and reports [PlayerMessage.UpdateProgress]. */
+    const val UPDATE = "update"
+}
+
+@Serializable
+enum class UpdateState {
+    @SerialName("downloading") DOWNLOADING,
+
+    @SerialName("checking") CHECKING,
+
+    @SerialName("installing") INSTALLING,
+
+    /** Installed; the player restarts into it and says hello with the new version. */
+    @SerialName("restarting") RESTARTING,
+
+    @SerialName("failed") FAILED,
+
+    /** The new version did not start healthily, so the player went back to the one before. */
+    @SerialName("rolled_back") ROLLED_BACK,
 }
 
 /** What ChurchPresenter sends a player. */
@@ -91,7 +139,20 @@ sealed interface ServerMessage {
     @SerialName("refresh")
     data object Refresh : ServerMessage
 
-    /** ChurchPresenter has an agent build for this platform; the player verifies it before use. */
+    /** Asks for a [PlayerMessage.Preview] no wider than [maxWidth]. Sent only while someone looks. */
+    @Serializable
+    @SerialName("preview_request")
+    data class PreviewRequest(val maxWidth: Int = DEFAULT_PREVIEW_WIDTH) : ServerMessage {
+        companion object {
+            const val DEFAULT_PREVIEW_WIDTH = 480
+        }
+    }
+
+    /**
+     * Install this agent build, fetched from [path] on ChurchPresenter. The player believes only
+     * [release], the release index exactly as published, once [releaseSignature] checks out against
+     * the key it was built with; the build must then hash to that index's entry for its platform.
+     */
     @Serializable
     @SerialName("update_available")
     data class UpdateAvailable(
@@ -100,6 +161,8 @@ sealed interface ServerMessage {
         val protocolMax: Int,
         val sha256: String,
         val path: String,
+        val release: String = "",
+        val releaseSignature: String = "",
     ) : ServerMessage
 }
 

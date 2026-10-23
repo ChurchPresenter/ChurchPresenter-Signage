@@ -17,15 +17,17 @@ All answer `403 "dev mode only"` when dev mode is off. All but the WebSocket's p
 | `GET /api/signage/ws` (WebSocket) | The control channel, below |
 | `GET /api/signage/manifest` | This player's `Manifest`; its version in the `ETag` header |
 | `GET /api/signage/files/{sha256}` | A file by hash; `404` for one not in this player's manifest |
-| `GET /api/signage/agent/{platform}` | The agent build ChurchPresenter ships for `linux_arm64`, `linux_x64` or `windows_x64` |
+| `GET /api/signage/agent/{platform}` | The agent build ChurchPresenter offers for `linux_arm64`, `linux_x64` or `windows_x64`, as downloaded from the release |
 
 ## The control channel
 The player's first message is `hello`. Then:
 
 | From | `type` | Meaning |
 |---|---|---|
-| player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired |
+| player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired, `features` |
 | player | `status` | what it shows, last sync, free disk, CEC state, errors; on change and every minute |
+| player | `preview` | a JPEG of what the screen shows (base64), its size and when it was taken; answers `preview_request` |
+| player | `update_progress` | version, `downloading` (with a percentage), `checking`, `installing`, `restarting`, `failed` or `rolled_back`, and why |
 | server | `unsupported` | the player's protocol range excludes ChurchPresenter's; connection closes |
 | server | `pairing_pending` | waiting for approval in the Signage tab |
 | server | `paired` | token, owner id and name; the player reconnects with the token |
@@ -35,7 +37,28 @@ The player's first message is `hello`. Then:
 | server | `override` | a manual switch, or `null` to release it |
 | server | `identify` | show the screen's name for a few seconds |
 | server | `refresh` | restart what draws the screen (mpv) |
-| server | `update_available` | an agent build, its protocol range, hash and path |
+| server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
+| server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
+
+A player lists what it can do in its hello's `features` (`preview`, `update`); ChurchPresenter sends
+`preview_request` and `update_available` only to players that list them. Both sides ignore message
+types they do not know.
+
+## Updates
+Every release publishes `signage-release.json` (version, protocol range, and per platform the
+bundle's name, size and SHA-256; fixture `fixtures/signage-release-v1.json`) and
+`signage-release.json.sig`, its Ed25519 signature in base64, made by the release workflow with the
+repo secret `SIGNAGE_SIGNING_KEY`. Both ChurchPresenter and the player carry the public key
+(`ReleaseSigning.PUBLIC_KEY`) and trust a build only through a signed index:
+- ChurchPresenter reads the latest index, checks its signature, and offers an update to a player
+  that is older and whose platform the release has, when the release speaks ChurchPresenter's
+  protocol. It downloads the bundle, checks it against the index, serves it at
+  `/api/signage/agent/{platform}`, and sends `update_available` with the index text exactly as
+  published and its signature.
+- The player checks the signature with its own key, that the index names the offered version and
+  its platform and speaks its protocol, and that the download hashes to the index's entry. Then it
+  unpacks it beside the running version, switches, and restarts; a version that does not become
+  healthy within three starts is rolled back, and the player says so with `update_progress`.
 
 ## Ownership
 A player stores the owner id it was paired with and refuses a manifest with any other `ownerId`.

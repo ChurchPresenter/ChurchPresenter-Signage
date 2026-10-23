@@ -1,5 +1,7 @@
 package org.churchpresenter.signage.agent
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -37,6 +39,7 @@ class MpvIpc(private val transport: Transport) : Closeable {
 
     private val nextId = AtomicInteger(1)
     private val pending = ConcurrentHashMap<Int, String>()
+    private val awaited = ConcurrentHashMap<Int, CompletableDeferred<Boolean>>()
     private val reader = Thread(::readLoop, "mpv-ipc").apply { isDaemon = true }
 
     init {
@@ -44,18 +47,34 @@ class MpvIpc(private val transport: Transport) : Closeable {
     }
 
     /** Sends [commands] in order: each a positional array or a named-argument object. */
-    @Synchronized
     fun send(commands: List<JsonElement>) {
-        for (command in commands) {
-            val id = nextId.getAndIncrement()
-            pending[id] = describe(command)
-            val line = SignageJson.encodeToString(
-                JsonElement.serializer(),
-                JsonObject(mapOf("command" to command, "request_id" to JsonPrimitive(id))),
-            ) + "\n"
-            val bytes = ByteBuffer.wrap(line.toByteArray())
-            while (bytes.hasRemaining()) transport.write(bytes)
+        commands.forEach(::write)
+    }
+
+    /** Sends [command] and waits for mpv's answer: true if it did it, false if it refused or gave none in time. */
+    suspend fun request(command: JsonElement, timeoutMs: Long = REQUEST_TIMEOUT_MS): Boolean {
+        val answer = CompletableDeferred<Boolean>()
+        val id = write(command) { awaited[it] = answer }
+        return try {
+            withTimeoutOrNull(timeoutMs) { answer.await() } ?: false
+        } finally {
+            awaited.remove(id)
         }
+    }
+
+    /** Writes one command line; [register] sees its id before mpv can answer. */
+    @Synchronized
+    private fun write(command: JsonElement, register: (Int) -> Unit = {}): Int {
+        val id = nextId.getAndIncrement()
+        pending[id] = describe(command)
+        register(id)
+        val line = SignageJson.encodeToString(
+            JsonElement.serializer(),
+            JsonObject(mapOf("command" to command, "request_id" to JsonPrimitive(id))),
+        ) + "\n"
+        val bytes = ByteBuffer.wrap(line.toByteArray())
+        while (bytes.hasRemaining()) transport.write(bytes)
+        return id
     }
 
     override fun close() = transport.close()
@@ -89,7 +108,9 @@ class MpvIpc(private val transport: Transport) : Closeable {
         val error = message["error"]?.jsonPrimitive?.contentOrNull
         if (id != null) {
             val command = pending.remove(id)
-            if (error != null && error != "success") Log.warn("mpv refused $command: $error")
+            val done = error == "success"
+            if (!done) Log.warn("mpv refused $command: $error")
+            awaited.remove(id)?.complete(done)
             return
         }
         if (message["event"]?.jsonPrimitive?.contentOrNull == "end-file" &&
@@ -146,5 +167,6 @@ class MpvIpc(private val transport: Transport) : Closeable {
         const val READ_BUFFER = 8192
         const val NEWLINE = '\n'.code.toByte()
         const val DESCRIBE_CHARS = 80
+        const val REQUEST_TIMEOUT_MS = 10_000L
     }
 }
