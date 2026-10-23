@@ -143,6 +143,8 @@ class UpdaterTest {
         app.markHealthy()
         assertFalse(root.resolve("app/pending").exists())
         root.resolve("app/rolled-back").writeText("0.2.0\n")
+        assertEquals("0.2.0", app.rolledBackVersion())
+        assertEquals("0.2.0", app.rolledBackVersion(), "looking does not take it")
         assertEquals("0.2.0", app.takeRolledBack())
         assertNull(app.takeRolledBack())
     }

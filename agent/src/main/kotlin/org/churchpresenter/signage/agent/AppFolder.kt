@@ -56,6 +56,9 @@ class AppFolder(val root: Path) {
         if (pending.deleteIfExists()) Log.info("Update to ${currentVersion()} is healthy")
     }
 
+    /** The version the launcher rolled back from, without taking it; null if none. */
+    fun rolledBackVersion(): String? = rolledBack.takeIf { it.exists() }?.readText()?.trim()
+
     /** The version the launcher rolled back from, once; null if none. */
     fun takeRolledBack(): String? = rolledBack.takeIf { it.exists() }?.let { file ->
         file.readText().trim().also { file.deleteIfExists() }

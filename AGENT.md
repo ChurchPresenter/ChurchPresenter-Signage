@@ -26,6 +26,23 @@ by what `mpv --list-options` lists.
 **CEC rule:** send only when the wanted power changes; never power-on on the first decision after
 start; never anything in a Service block. A TV on another HDMI input must never be pulled away.
 
+## Crash reports
+`Diagnostics` sends to Sentry, project **church-projector / church-presenter-signage** (DSN in
+`agent/src/main/resources/sentry.properties`, committed as ChurchPresenter's is). Sent: uncaught
+exceptions, every `Log.error`, "An update was rolled back", and "mpv keeps exiting" (`ExitWatch`:
+three exits or failed starts in ten minutes, then quiet for an hour, with mpv's last output lines).
+`Log.warn` is a breadcrumb. Release builds are `production`; anything else is `development` —
+filter on it.
+- **Consent is the owner's**: `Manifest.diagnostics` carries ChurchPresenter's analytics setting and
+  is asked before each event; a player with no manifest reports.
+- **No `Log.error` in a retry loop** — every one is an event. Log a warning and count it, as a
+  failed mpv start does.
+- **The operator's environment is not a defect** (ChurchPresenter's rule): an unreachable
+  ChurchPresenter, a full disk or a missing tool is a warning, not a report.
+- Keep a report's title constant and put what varies in tags. No host name is sent, the player id
+  only as a hash, and IPv4 addresses are masked in messages and breadcrumbs.
+- Source context is uploaded only when the build has `SENTRY_AUTH_TOKEN` (Sentry Gradle plugin).
+
 ## Install and release
 - `install/install.sh` (Pi and Linux mini PCs: mpv on DRM/KMS with no desktop, one systemd unit in
   a console session on tty1). The player lives in the data folder as `app/<version>/` with a

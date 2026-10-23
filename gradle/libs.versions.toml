@@ -6,6 +6,9 @@ ktor = "3.6.0"
 detekt = "1.23.8"
 slf4j = "2.0.17"
 jmdns = "3.6.3"
+# As ChurchPresenter's, so both report through the same SDK.
+sentry = "8.61.0"
+sentryPlugin = "6.24.0"
 
 [libraries]
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
@@ -16,6 +19,7 @@ ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 ktor-client-websockets = { module = "io.ktor:ktor-client-websockets", version.ref = "ktor" }
 jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
+sentry = { module = "io.sentry:sentry", version.ref = "sentry" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
 
@@ -23,3 +27,4 @@ detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", 
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+sentry = { id = "io.sentry.jvm.gradle", version.ref = "sentryPlugin" }
