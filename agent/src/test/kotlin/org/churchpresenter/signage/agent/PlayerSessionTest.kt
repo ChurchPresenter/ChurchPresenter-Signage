@@ -164,6 +164,29 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun webPagesAndTheirTestAreListedOnlyWhenThePlayerCanDoThem() = runTest {
+        val test = WebTest(engine, { 0 }, pause = {}, settleMs = 0)
+        assertEquals(listOf(Features.WIPE, Features.STREAM), sessionWith(webTest = test).hello().features)
+        assertEquals(
+            listOf(Features.WIPE, Features.STREAM, Features.WEB, Features.WEB_TEST),
+            sessionWith(web = true, webTest = test, background = backgroundScope).hello().features,
+        )
+    }
+
+    @Test
+    fun aWebTestRunsInTheBackgroundAndAnswers() = runTest {
+        var frames = 0L
+        val test = WebTest(engine, { frames }, pause = { frames += 15 }, settleMs = 0)
+        val testing = sessionWith(web = true, webTest = test, background = backgroundScope)
+        assertEquals(SessionNext.STAY, testing.handle(ServerMessage.WebTest(fps = listOf(15), secondsEach = 2)))
+        testScheduler.advanceUntilIdle()
+        val result = testing.outgoing.receive() as PlayerMessage.WebTestResult
+        assertEquals(15, result.runs.single().fps)
+        // Without the test, the request is ignored.
+        assertEquals(SessionNext.STAY, sessionWith().handle(ServerMessage.WebTest()))
+    }
+
+    @Test
     fun anUpdateRunsInTheBackgroundAndReportsBack() = runTest {
         val app = AppFolder(root.resolve("app"))
         lateinit var updating: PlayerSession
@@ -191,6 +214,8 @@ class PlayerSessionTest {
         updater: Updater? = null,
         app: AppFolder? = null,
         background: CoroutineScope? = null,
+        web: Boolean = false,
+        webTest: WebTest? = null,
     ) = PlayerSession(
         store, engine, AgentInfo("0.1.0", Platform.LINUX_ARM64, 1920, 1080),
         sync = { ManifestSync(store, source).sync() },
@@ -199,6 +224,8 @@ class PlayerSessionTest {
         updater = updater,
         app = app,
         background = background,
+        web = web,
+        webTest = webTest,
     )
 
     @Test
