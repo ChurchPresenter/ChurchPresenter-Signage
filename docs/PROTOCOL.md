@@ -41,8 +41,9 @@ The player's first message is `hello`. Then:
 | server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`); ChurchPresenter
-sends `wipe`, `preview_request` and `update_available` only to players that list them. Both sides ignore message
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`);
+ChurchPresenter sends `wipe`, `preview_request` and `update_available` only to players that list them,
+and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
 types they do not know.
 
 ## Updates
@@ -73,7 +74,21 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
   start runs past midnight; `days` are the days a block starts on.
 - `schedule[].action`: `play` (a playlist, TV on), `tv_off`, `service` (keep playing the default
   playlist, send nothing over CEC).
-- A playlist item's `durationMs` is null for a video that plays to its end.
+- A playlist item's `kind` is `image`, `video`, `stream` or `web`. A file (`image`, `video`) is named
+  by `sha256`; a link (`stream`, `web`) has `url` instead and an empty `sha256`, and the player
+  opens it when it plays, with no download.
+  - `stream`: a video or live stream mpv opens itself (a file over http, HLS, RTSP, or a page
+    yt-dlp reads, such as YouTube).
+  - `web`: a web page drawn off screen by the player's Chromium, 15 frames a second at most;
+    `refreshMs`, when set, reloads it that often.
+  - A player older than these kinds cannot decode a manifest that has one, so it never gets one
+    (`features` above); a playlist made only of links it cannot play shows its idle card.
+  - A link that does not load within 15 s, or a stream that stops answering, is set aside for a
+    minute: the screen falls back as for any playlist that cannot play, and never shows an error page.
+  - `url` and `refreshMs` are left out of an item that has none, so a manifest without links
+    encodes as it did before them.
+- A playlist item's `durationMs` is null for a video that plays to its end, and for a link that
+  stays up for as long as its playlist plays.
 - `diagnostics` says whether the screen may send crash reports: the owning ChurchPresenter's
   analytics setting. A player with no manifest reports.
 

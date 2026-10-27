@@ -72,6 +72,12 @@ object Features {
 
     /** Answers [ServerMessage.Wipe]. */
     const val WIPE = "wipe"
+
+    /** Plays [MediaKind.STREAM] items. */
+    const val STREAM = "stream"
+
+    /** Draws [MediaKind.WEB] items: listed only when the player has a Chromium. */
+    const val WEB = "web"
 }
 
 @Serializable

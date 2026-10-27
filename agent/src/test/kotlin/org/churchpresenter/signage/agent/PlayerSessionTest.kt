@@ -141,15 +141,15 @@ class PlayerSessionTest {
 
     @Test
     fun aPlayerListsOnlyWhatItCanDo() = runTest {
-        assertEquals(listOf(Features.WIPE), session.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.STREAM), session.hello().features)
         val app = AppFolder(root.resolve("app"))
         val withPreview = sessionWith(previews = PreviewMaker({ false }, root), app = app)
-        assertEquals(listOf(Features.WIPE, Features.PREVIEW), withPreview.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.STREAM, Features.PREVIEW), withPreview.hello().features)
         root.resolve("app/0.1.0").createDirectories()
         Files.createSymbolicLink(root.resolve("app/current"), Path.of("0.1.0"))
         val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
         assertEquals(
-            listOf(Features.WIPE, Features.PREVIEW, Features.UPDATE),
+            listOf(Features.WIPE, Features.STREAM, Features.PREVIEW, Features.UPDATE),
             sessionWith(app = app, previews = PreviewMaker({ false }, root), updater = updater).hello().features,
         )
     }

@@ -33,6 +33,8 @@ class PlayerSession(
     private val app: AppFolder? = null,
     /** Where a long job, an update, runs, so the connection keeps answering meanwhile. */
     private val background: CoroutineScope? = null,
+    /** Whether this player draws web pages: it found a Chromium. */
+    private val web: Boolean = false,
 ) {
     /** Messages for ChurchPresenter that are not answers to its own: previews and update progress. */
     val outgoing = Channel<PlayerMessage>(OUTGOING_CAPACITY, BufferOverflow.DROP_OLDEST)
@@ -40,6 +42,8 @@ class PlayerSession(
     /** What this player can do beyond the basics, as its hello lists it. */
     val features: List<String> = listOfNotNull(
         Features.WIPE,
+        Features.STREAM,
+        Features.WEB.takeIf { web },
         Features.PREVIEW.takeIf { previews != null },
         Features.UPDATE.takeIf { updater != null && app?.canUpdate() == true },
     )

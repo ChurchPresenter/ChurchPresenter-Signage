@@ -16,7 +16,8 @@ import java.util.Locale
  * changed: a playlist edit reloads the files, a new pairing code only redraws the text.
  *
  * Files are loaded with per-file options (how long a picture stays, where a video stops) through
- * mpv's named-argument form of `loadfile`, which reads the same on mpv 0.35 and later.
+ * mpv's named-argument form of `loadfile`, which reads the same on mpv 0.35 and later. A stream is
+ * loaded from its own URL; a web page from the local MJPEG stream [WebRenderer] draws it into.
  */
 object MpvScene {
     /** The idle card's text and the identify card are drawn in this space and scaled to the screen. */
@@ -29,9 +30,15 @@ object MpvScene {
     /**
      * [previous] is what mpv shows now, or null when it has just started. [blank] is a black picture:
      * shown when there is nothing else, rather than stopping, so mpv always has a frame to draw the
-     * idle card's text on and to take the Signage tab's preview from.
+     * idle card's text on and to take the Signage tab's preview from. [webStream] gives the local
+     * stream a web page is drawn into, from the page's URL.
      */
-    fun commands(previous: ScreenState?, next: ScreenState, blank: Path): List<JsonElement> = buildList {
+    fun commands(
+        previous: ScreenState?,
+        next: ScreenState,
+        blank: Path,
+        webStream: (String) -> String = { it },
+    ): List<JsonElement> = buildList {
         if (previous == null || previous.orientation != next.orientation) {
             add(setProperty("video-rotate", JsonPrimitive(next.orientation.clockwiseDegrees)))
         }
@@ -39,7 +46,7 @@ object MpvScene {
         if (previous == null || boxOf(previous) != boxOf(next) || previous.orientation != next.orientation) {
             addAll(margins(boxOf(next), next.orientation))
         }
-        if (previous == null || contentOf(previous) != content) addAll(load(content, blank))
+        if (previous == null || contentOf(previous) != content) addAll(load(content, blank, webStream))
         val card = OsdText.idleCard(next)
         if (previous == null || OsdText.idleCard(previous) != card) add(overlay(CARD_OVERLAY, card))
         val identify = OsdText.identify(next)
@@ -62,22 +69,35 @@ object MpvScene {
 
     private fun boxOf(state: ScreenState): List<Double> = if (contentOf(state) is Content.Logo) LOGO_BOX else NO_MARGINS
 
-    private fun load(content: Content, blank: Path): List<JsonElement> = when (content) {
-        Content.Nothing -> listOf(loadfile(blank, "replace", "image-display-duration=inf"))
-        is Content.Logo -> listOf(loadfile(content.file, "replace", "image-display-duration=inf"))
-        is Content.Playlist -> content.items.mapIndexed { index, item ->
-            loadfile(item.file, if (index == 0) "replace" else "append", options(item, content.items.size == 1))
+    private fun load(content: Content, blank: Path, webStream: (String) -> String): List<JsonElement> =
+        when (content) {
+            Content.Nothing -> listOf(loadfile(blank.toString(), "replace", "image-display-duration=inf"))
+            is Content.Logo -> listOf(loadfile(content.file.toString(), "replace", "image-display-duration=inf"))
+            is Content.Playlist -> content.items.mapIndexed { index, item ->
+                val target = when (item.kind) {
+                    MediaKind.STREAM -> item.url.orEmpty()
+                    MediaKind.WEB -> webStream(item.url.orEmpty())
+                    MediaKind.IMAGE, MediaKind.VIDEO -> item.file.toString()
+                }
+                loadfile(target, if (index == 0) "replace" else "append", options(item, content.items.size == 1))
+            }
         }
-    }
 
     /** A lone item stays up or loops in place; reloading it would flash black between plays. */
-    private fun options(item: ScreenItem, alone: Boolean): String = when {
-        item.kind == MediaKind.IMAGE && alone -> "image-display-duration=inf"
-        item.kind == MediaKind.IMAGE ->
-            "image-display-duration=${seconds(item.durationMs ?: ScreenItem.DEFAULT_PICTURE_MS)}"
-        item.durationMs != null -> "end=${seconds(item.durationMs)}"
-        alone -> "loop-file=inf"
-        else -> ""
+    private fun options(item: ScreenItem, alone: Boolean): String {
+        val stream = STREAM_OPTIONS.takeIf { item.kind == MediaKind.STREAM }
+        val playback = when {
+            // A page's frames come as they are drawn and none when it is still, so mpv shows each as
+            // it arrives, holds no buffer, and the stream never ends while the page is up.
+            item.kind == MediaKind.WEB -> WEB_OPTIONS
+            item.kind == MediaKind.IMAGE && alone -> "image-display-duration=inf"
+            item.kind == MediaKind.IMAGE ->
+                "image-display-duration=${seconds(item.durationMs ?: ScreenItem.DEFAULT_PICTURE_MS)}"
+            item.durationMs != null -> "end=${seconds(item.durationMs)}"
+            alone -> "loop-file=inf"
+            else -> null
+        }
+        return listOfNotNull(stream, playback).joinToString(",")
     }
 
     private fun seconds(ms: Long): String = String.format(Locale.ROOT, "%.3f", ms / MS_PER_SECOND)
@@ -95,9 +115,9 @@ object MpvScene {
         }
     }
 
-    private fun loadfile(file: Path, flags: String, options: String) = buildJsonObject {
+    private fun loadfile(target: String, flags: String, options: String) = buildJsonObject {
         put("name", "loadfile")
-        put("url", file.toString())
+        put("url", target)
         put("flags", flags)
         if (options.isNotEmpty()) put("options", options)
     }
@@ -117,6 +137,10 @@ object MpvScene {
         add(JsonPrimitive(name))
         add(value)
     }
+
+    /** A stream that stops answering ends after this many seconds, so the player can set it aside. */
+    private const val STREAM_OPTIONS = "network-timeout=15"
+    private const val WEB_OPTIONS = "demuxer-lavf-format=mpjpeg,untimed=yes,cache=no,demuxer-readahead-secs=0"
 
     private const val QUARTER = 90
     private const val MS_PER_SECOND = 1000.0

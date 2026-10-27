@@ -12,7 +12,7 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), links (`LinkHealth`; web pages by `WebRenderer` in a headless `Chromium`, handed to mpv as MJPEG by `MjpegServer`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
 
 The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
 (`Fixtures.kt`) and never a real mpv; `MpvIpcTest` talks to a Unix socket of its own, `MpvPlayerTest` to a

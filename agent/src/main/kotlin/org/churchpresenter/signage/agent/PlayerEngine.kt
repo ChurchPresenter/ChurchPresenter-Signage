@@ -23,8 +23,13 @@ class PlayerEngine(
     private val store: PlayerStore,
     private val cec: Cec,
     private val clock: () -> Instant = Instant::now,
+    /** Links that failed lately, which do not play until they are tried again. */
+    private val links: LinkHealth = LinkHealth(),
+    /** Whether this player can draw web pages: it has a Chromium. */
+    private val web: Boolean = false,
 ) {
     private val policy = TvPowerPolicy()
+    private val items = PlayableItems(store.files, links, web)
     private var manifest: StoredManifest? = store.manifest()
     private var override: ScreenOverride? = store.override()
     private var message: String? = null
@@ -66,6 +71,14 @@ class PlayerEngine(
         tick()
     }
 
+    /** [urls] could not be opened; their playlists give way until they are tried again. */
+    @Synchronized
+    fun linkFailed(urls: Collection<String>) {
+        val now = clock()
+        urls.forEach { links.failed(it, now) }
+        tick()
+    }
+
     fun probeCec() {
         cecState = if (cec.probe()) CecState.WORKING else CecState.UNAVAILABLE
     }
@@ -82,7 +95,7 @@ class PlayerEngine(
             )
             return
         }
-        val next = decide(stored.manifest, override, now, ::isPlayable)
+        val next = decide(stored.manifest, override, now) { isPlayable(it, now) }
         decision = next
         policy.next(next.tv)?.let { command -> if (cecState != CecState.UNAVAILABLE) cec.send(command) }
         _state.update { stateFor(stored.manifest, next, identifying) }
@@ -96,8 +109,8 @@ class PlayerEngine(
         }
     }
 
-    private fun isPlayable(playlist: Playlist): Boolean =
-        playlist.items.isNotEmpty() && playlist.items.all { store.files.has(it.sha256) }
+    private fun isPlayable(playlist: Playlist, now: Instant): Boolean =
+        playlist.items.isNotEmpty() && playlist.items.all { items.canPlay(it, now) }
 
     private fun stateFor(manifest: Manifest, decision: ScreenDecision, identifying: String?): ScreenState {
         val base = ScreenState(
@@ -114,13 +127,11 @@ class PlayerEngine(
             Show.Idle -> base
             is Show.PlaylistShow -> {
                 val playlist = manifest.playlist(show.playlistId) ?: return base
-                // isPlayable() has checked every file is here, so none of these paths is null.
                 base.copy(
                     mode = ScreenMode.PLAYLIST,
                     playlistId = playlist.id,
-                    items = playlist.items.mapNotNull { item ->
-                        store.files.path(item.sha256)?.let { ScreenItem(it, item.kind, item.durationMs) }
-                    },
+                    // isPlayable() has checked each item can play, so none is dropped.
+                    items = playlist.items.mapNotNull(items::screenItem),
                 )
             }
         }
