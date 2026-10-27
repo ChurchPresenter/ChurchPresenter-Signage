@@ -32,6 +32,13 @@ class ChromiumArgsTest {
     }
 
     @Test
+    fun chromiumStartsWithoutTheSessionBus() {
+        val launcher = Chromium.launcher(listOf("chromium", "about:blank"))
+        assertEquals("disabled:", launcher.environment()["DBUS_SESSION_BUS_ADDRESS"])
+        assertEquals(listOf("chromium", "about:blank"), launcher.command())
+    }
+
+    @Test
     fun aGpuThatFailsOnceIsOffForGood() {
         HttpClient(CIO).use { client ->
             val marker = dir.resolve(Chromium.GPU_OFF_MARKER)
