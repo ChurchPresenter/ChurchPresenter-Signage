@@ -267,13 +267,14 @@ class MpvProcessLauncher(
         /**
          * What [baseArgs] leaves to the version: stay with hardware decoding through a live feed's
          * first frames (renamed in mpv 0.39), and draw a picture's see-through parts black rather
-         * than as a checkerboard (mpv 0.38 moved that from `--alpha` to `--background`). [names] is
-         * what `mpv --list-options` lists; with none, the older names, which later versions still take.
+         * than as a checkerboard (mpv 0.38 moved that from `--alpha` to `--background`, and 0.40 removed
+         * `--alpha`, which it refuses to start with). [names] is what `mpv --list-options` lists; with
+         * none, the older names.
          */
         fun versionArgs(names: Set<String>): List<String> = listOfNotNull(
             if ("--hwdec-software-fallback" in names) "--hwdec-software-fallback=600"
             else "--vd-lavc-software-fallback=600",
-            "--alpha=blend",
+            "--alpha=blend".takeIf { names.isEmpty() || "--alpha" in names },
             "--background=color".takeIf { "--background-color" in names },
         )
     }
