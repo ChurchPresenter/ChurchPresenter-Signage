@@ -47,7 +47,9 @@ fun main(args: Array<String>) {
     val platform = AgentConfig.currentPlatform()
     val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
     val launcher = MpvProcessLauncher(
-        config.mpv, config.mpvArgs, ipcPath(config), onFileError = { engine.streamFailed() },
+        config.mpv, config.mpvArgs, ipcPath(config),
+        onFileError = { engine.streamFailed() },
+        onFileEnded = engine::itemEnded,
     )
     val output = config.mpvArgs.firstOrNull { it.startsWith("--vo=") }?.removePrefix("--vo=") ?: "default"
     startDiagnostics(store, platform, output, app)
@@ -135,15 +137,16 @@ private class WebParts(val renderer: WebRenderer, val test: WebTest)
 /** Draws web pages with the Chromium at [executable], its profile in the data folder. */
 private fun webParts(executable: String, config: AgentConfig, client: HttpClient, engine: PlayerEngine): WebParts {
     val frames = MjpegServer()
+    val chromium = Chromium(executable, config.dataDir.resolve("web-profile"), client)
     val renderer = WebRenderer(
-        browser = Chromium(executable, config.dataDir.resolve("web-profile"), client),
+        browser = chromium,
         server = frames,
         panelWidth = config.screenWidth,
         panelHeight = config.screenHeight,
         onFailed = { url -> engine.linkFailed(listOf(url)) },
         reachable = { url -> client.answers(url, WebRenderer.LOAD_TIMEOUT_MS) },
     )
-    return WebParts(renderer, WebTest(engine, frames::framesSent))
+    return WebParts(renderer, WebTest(engine, frames::framesSent, gpu = { chromium.gpu }))
 }
 
 /**

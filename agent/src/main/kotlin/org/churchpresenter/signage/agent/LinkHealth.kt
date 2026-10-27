@@ -1,6 +1,7 @@
 package org.churchpresenter.signage.agent
 
 import org.churchpresenter.signage.core.MediaKind
+import org.churchpresenter.signage.core.Playlist
 import org.churchpresenter.signage.core.PlaylistItem
 import java.time.Duration
 import java.time.Instant
@@ -38,6 +39,16 @@ class PlayableItems(private val files: ContentFiles, private val links: LinkHeal
         MediaKind.IMAGE, MediaKind.VIDEO -> files.has(item.sha256)
         MediaKind.STREAM -> item.url?.let { links.isUp(it, now) } == true
         MediaKind.WEB -> web && item.url?.let { links.isUp(it, now) } == true
+    }
+
+    /**
+     * Whether [playlist] can play now: every item, or for a rotation any one (it skips the rest
+     * until they can).
+     */
+    fun canPlay(playlist: Playlist, now: Instant): Boolean = when {
+        playlist.items.isEmpty() -> false
+        Rotation.isRotation(playlist) -> playlist.items.any { canPlay(it, now) }
+        else -> playlist.items.all { canPlay(it, now) }
     }
 
     /** [item] as the screen shows it; null for a file not on disk or a link with no URL. */

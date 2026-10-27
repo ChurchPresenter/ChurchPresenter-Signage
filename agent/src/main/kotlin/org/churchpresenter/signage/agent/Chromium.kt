@@ -34,7 +34,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
+import kotlin.io.path.readLines
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
+import kotlin.io.path.Path
 
 /**
  * One headless Chromium for the player, started when a web page is first wanted and stopped when
@@ -45,6 +48,11 @@ class Chromium(
     private val executable: String,
     private val profile: Path,
     private val client: HttpClient,
+    /** Present once the GPU failed on this player: from then on pages are drawn in software. */
+    private val gpuOff: Path = profile.resolveSibling(GPU_OFF_MARKER),
+    private val arm: Boolean = System.getProperty("os.arch") in ARM_ARCHES,
+    /** The machine's memory in KiB, which sizes Chromium's JavaScript heap. */
+    private val totalMemoryKb: Long? = Memory.read()?.totalKb,
 ) : WebRenderer.Browser {
     @Volatile
     private var process: Process? = null
@@ -55,6 +63,27 @@ class Chromium(
 
     init {
         Runtime.getRuntime().addShutdownHook(Thread { process?.destroy() })
+    }
+
+    /** The GPU draws on an ARM player until it fails there once; x86 players stay in software. */
+    override val gpu: Boolean get() = arm && !gpuOff.exists()
+
+    override fun useSoftware() {
+        if (!gpu) return
+        Log.warn("Web pages did not draw with the GPU; drawing them in software from now on")
+        runCatching { gpuOff.writeText("The GPU did not draw web pages on this player.\n") }
+        stop()
+    }
+
+    /**
+     * What Chromium and every process it started use now, in KiB; null while it is not running. Each
+     * process's proportional share (PSS): its processes share most of their memory, and adding up
+     * what each has resident counts that several times over (on the test VM 1.2 GB for 425 MB).
+     */
+    override fun memoryKb(): Long? {
+        val running = process?.takeIf { it.isAlive } ?: return null
+        val processes = listOf(running.toHandle()) + running.descendants().toList()
+        return processes.sumOf { handle -> proportionalKb(handle.pid()) }
     }
 
     override suspend fun <T> withPage(block: suspend (WebRenderer.Page) -> T): T {
@@ -95,12 +124,28 @@ class Chromium(
         process = null
     }
 
-    /** The DevTools port of a running Chromium, starting one if none is; one at a time. */
+    /**
+     * The DevTools port of a running Chromium, starting one if none is; one at a time. One that cannot
+     * start with the GPU is started again in software at once, and stays there.
+     */
     private suspend fun ensureStarted(): Int = starting.withLock {
         process?.takeIf { it.isAlive }?.let { return port }
+        val withGpu = gpu
+        try {
+            start(withGpu)
+        } catch (e: IOException) {
+            if (!withGpu) throw e
+            useSoftware()
+            start(withGpu = false)
+        }
+    }
+
+    private suspend fun start(withGpu: Boolean): Int {
         val portFile = profile.resolve("DevToolsActivePort")
         portFile.deleteIfExists()
-        val started = ProcessBuilder(listOf(executable) + args(profile, PAGE_WINDOW_WIDTH, PAGE_WINDOW_HEIGHT))
+        val heapMb = if ((totalMemoryKb ?: 0) < SMALL_MACHINE_KB) SMALL_HEAP_MB else HEAP_MB
+        val command = listOf(executable) + args(profile, PAGE_WINDOW_WIDTH, PAGE_WINDOW_HEIGHT, withGpu, heapMb)
+        val started = ProcessBuilder(command)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
@@ -111,7 +156,7 @@ class Chromium(
             val first = if (portFile.exists()) portFile.readText().lineSequence().firstOrNull()?.toIntOrNull() else null
             if (first != null) {
                 port = first
-                Log.info("Chromium started (pid ${started.pid()})")
+                Log.info("Chromium started (pid ${started.pid()}, ${if (withGpu) "GPU" else "software"})")
                 return first
             }
             delay(START_POLL_MS)
@@ -185,8 +230,25 @@ class Chromium(
             }
         }
 
-        /** Headless, silent, no scroll bars, nothing of a first run; DevTools on a free port. */
-        fun args(profile: Path, width: Int, height: Int): List<String> = listOf(
+        /** Where the marker that turns the GPU off lives, beside the browser profile. */
+        const val GPU_OFF_MARKER = "web-gpu-off"
+        private val ARM_ARCHES = setOf("aarch64", "arm64")
+        private const val SMALL_MACHINE_KB = 2L * 1024 * 1024
+        private const val SMALL_HEAP_MB = 512
+        private const val HEAP_MB = 1024
+
+        /**
+         * Headless, silent, no scroll bars, nothing of a first run; DevTools on a free port. Drawn
+         * with the GPU through ANGLE on EGL when [gpu], in software otherwise; JavaScript's heap
+         * capped at [heapMb], so one page cannot take the whole machine.
+         */
+        fun args(
+            profile: Path,
+            width: Int,
+            height: Int,
+            gpu: Boolean = false,
+            heapMb: Int = HEAP_MB,
+        ): List<String> = listOf(
             "--headless=new",
             "--remote-debugging-port=0",
             "--remote-debugging-address=127.0.0.1",
@@ -197,10 +259,48 @@ class Chromium(
             "--autoplay-policy=no-user-gesture-required",
             "--no-first-run",
             "--no-default-browser-check",
-            "--disable-gpu",
             "--noerrdialogs",
-            "about:blank",
+            "--js-flags=--max-old-space-size=$heapMb",
+        ) + (if (gpu) GPU_ARGS else listOf("--disable-gpu")) + "about:blank"
+
+        private val GPU_ARGS = listOf(
+            "--use-gl=angle",
+            "--use-angle=gles-egl",
+            "--enable-gpu-rasterization",
+            "--ignore-gpu-blocklist",
         )
+
+        /**
+         * How much memory Chromium may use on a machine with [totalKb] before it is restarted, as
+         * Kiosk-URL sizes it: most of a large machine, a little over half of a small one.
+         */
+        fun memoryLimitKb(totalKb: Long?): Long = when {
+            totalKb == null -> LIMITS.last().second
+            else -> LIMITS.firstOrNull { (above, _) -> totalKb > above }?.second ?: LIMITS.last().second
+        }
+
+        /** Machine memory above which (KiB) Chromium may use how much (KiB). */
+        private val LIMITS = listOf(
+            8_388_608L to 6_291_456L,
+            4_194_304L to 4_194_304L,
+            2_097_152L to 2_621_440L,
+            1_048_576L to 1_228_800L,
+            0L to 716_800L,
+        )
+
+        /**
+         * A process's proportional share of memory in KiB, from `/proc/<pid>/smaps_rollup`, or what it
+         * has resident where the kernel is too old for that; 0 where neither can be read.
+         */
+        private fun proportionalKb(pid: Long): Long =
+            kibField(Path("/proc/$pid/smaps_rollup"), "Pss:") ?: kibField(Path("/proc/$pid/status"), "VmRSS:") ?: 0
+
+        private fun kibField(file: Path, name: String): Long? = try {
+            file.readLines().firstOrNull { it.startsWith(name) }
+                ?.substringAfter(':')?.trim()?.substringBefore(' ')?.toLongOrNull()
+        } catch (_: IOException) {
+            null
+        }
     }
 }
 

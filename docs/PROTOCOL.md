@@ -25,9 +25,9 @@ The player's first message is `hello`. Then:
 | From | `type` | Meaning |
 |---|---|---|
 | player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired, `features` |
-| player | `status` | what it shows, last sync, free disk, CEC state, errors; on change and every minute |
+| player | `status` | what it shows, last sync, free disk, CEC state, errors, and its health (processor and memory in use, temperature, uptime, each null where unknown); on change and every minute |
 | player | `preview` | a JPEG of what the screen shows (base64), its size and when it was taken; answers `preview_request` |
-| player | `web_test_result` | for each frame rate tried: the rate asked for, the average that reached the screen, how busy the processor was and its highest temperature (each null where unknown); or why the test could not run |
+| player | `web_test_result` | for each frame rate tried: the rate asked for, the average that reached the screen, how busy the processor was and its highest temperature (each null where unknown), whether the GPU drew the page; or why the test could not run |
 | player | `update_progress` | version, `downloading` (with a percentage), `checking`, `installing`, `restarting`, `failed` or `rolled_back`, and why |
 | server | `unsupported` | the player's protocol range excludes ChurchPresenter's; connection closes |
 | server | `pairing_pending` | waiting for approval in the Signage tab |
@@ -44,7 +44,7 @@ The player's first message is `hello`. Then:
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
 A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`,
-`web_test`); ChurchPresenter sends `wipe`, `preview_request`, `update_available` and `web_test` only to
+`web_test`, `rotation`); ChurchPresenter sends `wipe`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
 types they do not know.
@@ -93,6 +93,10 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     encodes as it did before them.
 - A playlist item's `durationMs` is null for a video that plays to its end, and for a link that
   stays up for as long as its playlist plays.
+- A **rotation** is a playlist with a link and other items: a player listing `rotation` shows it one
+  item at a time, each for its `durationMs` (a video without one to its end), and skips a link that
+  cannot load until it is tried again. ChurchPresenter sends a link that is not alone in its playlist
+  only to players listing `rotation`; to others it sends the rotation's files alone.
 - `diagnostics` says whether the screen may send crash reports: the owning ChurchPresenter's
   analytics setting. A player with no manifest reports.
 

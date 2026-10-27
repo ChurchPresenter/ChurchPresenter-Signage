@@ -141,15 +141,18 @@ class PlayerSessionTest {
 
     @Test
     fun aPlayerListsOnlyWhatItCanDo() = runTest {
-        assertEquals(listOf(Features.WIPE, Features.STREAM), session.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.STREAM, Features.ROTATION), session.hello().features)
         val app = AppFolder(root.resolve("app"))
         val withPreview = sessionWith(previews = PreviewMaker({ false }, root), app = app)
-        assertEquals(listOf(Features.WIPE, Features.STREAM, Features.PREVIEW), withPreview.hello().features)
+        assertEquals(
+            listOf(Features.WIPE, Features.STREAM, Features.ROTATION, Features.PREVIEW),
+            withPreview.hello().features,
+        )
         root.resolve("app/0.1.0").createDirectories()
         Files.createSymbolicLink(root.resolve("app/current"), Path.of("0.1.0"))
         val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
         assertEquals(
-            listOf(Features.WIPE, Features.STREAM, Features.PREVIEW, Features.UPDATE),
+            listOf(Features.WIPE, Features.STREAM, Features.ROTATION, Features.PREVIEW, Features.UPDATE),
             sessionWith(app = app, previews = PreviewMaker({ false }, root), updater = updater).hello().features,
         )
     }
@@ -166,9 +169,10 @@ class PlayerSessionTest {
     @Test
     fun webPagesAndTheirTestAreListedOnlyWhenThePlayerCanDoThem() = runTest {
         val test = WebTest(engine, { 0 }, pause = {}, settleMs = 0)
-        assertEquals(listOf(Features.WIPE, Features.STREAM), sessionWith(webTest = test).hello().features)
+        val basic = sessionWith(webTest = test).hello().features
+        assertEquals(listOf(Features.WIPE, Features.STREAM, Features.ROTATION), basic)
         assertEquals(
-            listOf(Features.WIPE, Features.STREAM, Features.WEB, Features.WEB_TEST),
+            listOf(Features.WIPE, Features.STREAM, Features.ROTATION, Features.WEB, Features.WEB_TEST),
             sessionWith(web = true, webTest = test, background = backgroundScope).hello().features,
         )
     }
@@ -184,6 +188,17 @@ class PlayerSessionTest {
         assertEquals(15, result.runs.single().fps)
         // Without the test, the request is ignored.
         assertEquals(SessionNext.STAY, sessionWith().handle(ServerMessage.WebTest()))
+    }
+
+    @Test
+    fun aStatusCarriesTheMachinesHealth() {
+        val reader = HealthReader(CpuLoad(root.resolve("no-stat")), { Memory(1000, 250) }, { 61.5 }, { 3600 })
+        val status = PlayerSession(
+            store, engine, AgentInfo("0.1.0", Platform.LINUX_ARM64, 1920, 1080),
+            sync = { SyncResult.UpToDate }, health = reader,
+        ).status()
+        val health = listOf(status.cpuPercent, status.memoryPercent, status.temperatureC, status.uptimeSeconds)
+        assertEquals(listOf(null, 75, 61.5, 3600L), health)
     }
 
     @Test

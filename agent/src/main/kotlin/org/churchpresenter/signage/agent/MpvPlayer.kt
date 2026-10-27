@@ -126,6 +126,8 @@ class MpvProcessLauncher(
     private val windows: Boolean = System.getProperty("os.name").startsWith("Windows"),
     /** Told when mpv could not play something it was given, such as a stream that does not answer. */
     private val onFileError: () -> Unit = {},
+    /** Told when mpv played something to its end. */
+    private val onFileEnded: () -> Unit = {},
 ) : MpvPlayer.Launcher {
     /** The options whose names differ between the mpv versions the player runs on, read from mpv once. */
     private val versionArgs: List<String> by lazy {
@@ -192,7 +194,8 @@ class MpvProcessLauncher(
         var waited = 0L
         while (true) {
             try {
-                return MpvIpc(if (windows) MpvIpc.NamedPipe(ipcPath) else MpvIpc.UnixSocket(ipcPath), onFileError)
+                val transport = if (windows) MpvIpc.NamedPipe(ipcPath) else MpvIpc.UnixSocket(ipcPath)
+                return MpvIpc(transport, onFileError, onFileEnded)
             } catch (e: IOException) {
                 if (!process.isAlive) throw IOException("mpv exited with ${process.exitValue()}", e)
                 if (waited >= CONNECT_TIMEOUT_MS) throw IOException("mpv's IPC did not open", e)

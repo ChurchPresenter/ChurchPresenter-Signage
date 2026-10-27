@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -24,6 +25,7 @@ import org.churchpresenter.signage.core.sha256Hex
 import java.io.IOException
 import java.net.URI
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Draws the web pages on screen off screen and hands their frames to mpv through [server]: a page is
@@ -41,15 +43,33 @@ class WebRenderer(
     /** Whether the site answers at all before it is loaded, so an offline reload never draws Chromium's error page. */
     private val reachable: suspend (url: String) -> Boolean = { true },
     private val loadTimeoutMs: Long = LOAD_TIMEOUT_MS,
+    /** Above this, in KiB, Chromium is restarted: a page left up for days must not take the machine. */
+    private val memoryLimitKb: Long = Chromium.memoryLimitKb(Memory.read()?.totalKb),
+    private val watchEveryMs: Long = WATCH_EVERY_MS,
 ) {
     /** Where pages are drawn: [Chromium], or a fake in tests. */
     interface Browser {
+        /** Whether pages are drawn with the GPU now. */
+        val gpu: Boolean
+
         /** Opens a page, runs [block] on it, and closes it; throws [IOException] when it cannot. */
         suspend fun <T> withPage(block: suspend (Page) -> T): T
 
         /** Ends the browser, when no page is wanted. */
         fun stop()
+
+        /** The GPU drew nothing: draw in software from now on (the browser starts again). */
+        fun useSoftware()
+
+        /** What the browser uses now, in KiB; null while it is not running. */
+        fun memoryKb(): Long?
     }
+
+    /** A page that loaded but sent no picture. */
+    private class NoFrameException : IOException("the page sent no picture")
+
+    /** Bumped each time the browser is restarted on purpose, so the pages it closed are opened again. */
+    private val restarts = AtomicInteger()
 
     /** One DevTools page. */
     interface Page {
@@ -70,8 +90,9 @@ class WebRenderer(
     /** The stream mpv plays for the page at [url]. */
     fun streamUrl(url: String): String = "http://127.0.0.1:${server.port}${MjpegServer.PATH_PREFIX}${key(url)}"
 
-    /** Follows [state] until cancelled, keeping open exactly the pages it shows. */
-    suspend fun run(state: StateFlow<ScreenState>) {
+    /** Follows [state] until cancelled, keeping open exactly the pages it shows, and the browser's memory in check. */
+    suspend fun run(state: StateFlow<ScreenState>): Unit = coroutineScope {
+        launch { MemoryWatch(browser, memoryLimitKb, watchEveryMs) { restarts.incrementAndGet() }.run() }
         state.map(::wanted).distinctUntilChanged().collectLatest { pages ->
             if (pages.isEmpty()) {
                 browser.stop()
@@ -89,15 +110,40 @@ class WebRenderer(
             .toSet()
     }
 
+    /**
+     * Shows [wanted] until cancelled. A restart on purpose (memory) or a page the GPU drew nothing
+     * of opens it again at once; any other failure goes to [onFailed].
+     */
     private suspend fun render(wanted: Wanted) {
         val key = key(wanted.url)
         try {
-            browser.withPage { page -> show(page, wanted, key) }
-        } catch (e: IOException) {
-            Log.warn("Web page failed: ${e.message}; trying it again in a minute")
-            onFailed(wanted.url)
+            while (attempt(wanted, key)) Unit
         } finally {
             server.remove(key)
+        }
+    }
+
+    /** One try at showing [wanted]; true to try again at once, false when done or failed. */
+    private suspend fun attempt(wanted: Wanted, key: String): Boolean {
+        val restart = restarts.get()
+        val failure: IOException? = try {
+            browser.withPage { page -> show(page, wanted, key) }
+            null
+        } catch (e: IOException) {
+            e
+        }
+        return when {
+            failure == null -> false
+            restarts.get() != restart -> true
+            failure is NoFrameException && browser.gpu -> {
+                browser.useSoftware()
+                true
+            }
+            else -> {
+                Log.warn("Web page failed: ${failure.message}; trying it again in a minute")
+                onFailed(wanted.url)
+                false
+            }
         }
     }
 
@@ -122,7 +168,9 @@ class WebRenderer(
                         "Page.screencastFrame" -> {
                             val data = event.params["data"]?.jsonPrimitive?.contentOrNull
                             data?.let { server.publish(key, Base64.getDecoder().decode(it)) }
-                            page.send("Page.screencastFrameAck", ack(event.params))
+                            // Acknowledged with its own session, or Chromium sends no more.
+                            val ack = buildJsonObject { event.params["sessionId"]?.let { put("sessionId", it) } }
+                            page.send("Page.screencastFrameAck", ack)
                         }
                     }
                 }
@@ -133,6 +181,9 @@ class WebRenderer(
         while (true) {
             loaded = CompletableDeferred()
             load(page, wanted, loaded)
+            // The screencast sends a picture only when the page changes, and a still page loaded
+            // already never does: its picture is asked for outright. None means nothing could draw it.
+            firstPicture(page, key)
             page.call("Page.startScreencast", screencast(wanted))
             val refreshMs = wanted.refreshMs ?: break
             delay(refreshMs)
@@ -140,6 +191,21 @@ class WebRenderer(
             page.call("Page.stopScreencast")
         }
         awaitCancellation()
+    }
+
+    /** Puts the loaded page's picture on the stream; throws [NoFrameException] when none comes in time. */
+    private suspend fun firstPicture(page: Page, key: String) {
+        val shot = withTimeoutOrNull(loadTimeoutMs) {
+            page.call(
+                "Page.captureScreenshot",
+                buildJsonObject {
+                    put("format", "jpeg")
+                    put("quality", JPEG_QUALITY)
+                },
+            )
+        }
+        val data = shot?.get("data")?.jsonPrimitive?.contentOrNull ?: throw NoFrameException()
+        server.publish(key, Base64.getDecoder().decode(data))
     }
 
     /** Loads [wanted]'s page; throws [IOException] when it cannot within [loadTimeoutMs]. */
@@ -170,12 +236,9 @@ class WebRenderer(
         put("everyNthFrame", everyNthFrame(wanted.fps))
     }
 
-    private fun ack(params: JsonObject) = buildJsonObject {
-        params["sessionId"]?.let { put("sessionId", it) }
-    }
-
     companion object {
         const val LOAD_TIMEOUT_MS = 15_000L
+        const val WATCH_EVERY_MS = 30_000L
 
         /** How often Chromium draws a page that moves. */
         private const val CHROMIUM_FPS = 60
@@ -192,5 +255,32 @@ class WebRenderer(
 
         /** Only the host goes into the log, never the whole address with whatever it carries. */
         private fun host(url: String): String = runCatching { URI(url).host }.getOrNull() ?: "the page"
+    }
+}
+
+/**
+ * Restarts [browser] when it uses more than [limitKb]: a page left up for days must not take the
+ * machine. [onRestart] runs first, so the pages it closes are opened again rather than failed.
+ */
+private class MemoryWatch(
+    private val browser: WebRenderer.Browser,
+    private val limitKb: Long,
+    private val everyMs: Long,
+    private val onRestart: () -> Unit,
+) {
+    suspend fun run() {
+        while (true) {
+            delay(everyMs)
+            val used = browser.memoryKb() ?: continue
+            if (used > limitKb) {
+                Log.warn("Chromium uses ${used / KIB} MB, over ${limitKb / KIB} MB; restarting it")
+                onRestart()
+                browser.stop()
+            }
+        }
+    }
+
+    private companion object {
+        const val KIB = 1024
     }
 }

@@ -38,6 +38,8 @@ class PlayerSession(
     private val web: Boolean = false,
     /** Measures how smoothly it shows one, when it can draw web pages. */
     private val webTest: WebTest? = null,
+    /** The machine's health, sent with each status. */
+    private val health: HealthReader = HealthReader(),
 ) {
     private val testing = AtomicBoolean(false)
 
@@ -48,6 +50,7 @@ class PlayerSession(
     val features: List<String> = listOfNotNull(
         Features.WIPE,
         Features.STREAM,
+        Features.ROTATION,
         Features.WEB.takeIf { web },
         Features.WEB_TEST.takeIf { webTest != null && background != null },
         Features.PREVIEW.takeIf { previews != null },
@@ -176,6 +179,7 @@ class PlayerSession(
     /** What the player reports about itself. */
     fun status(): PlayerMessage.Status {
         val state = engine.state.value
+        val now = health.read()
         return PlayerMessage.Status(
             showingPlaylistId = state.playlistId,
             reason = engine.decision?.reason?.name?.lowercase(),
@@ -183,6 +187,10 @@ class PlayerSession(
             freeDiskBytes = store.freeBytes(),
             cec = engine.cecState,
             errors = listOfNotNull(lastError),
+            cpuPercent = now.cpuPercent,
+            memoryPercent = now.memoryPercent,
+            temperatureC = now.temperatureC,
+            uptimeSeconds = now.uptimeSeconds,
         )
     }
 

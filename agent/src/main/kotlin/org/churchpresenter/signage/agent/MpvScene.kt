@@ -54,7 +54,7 @@ object MpvScene {
     }
 
     private sealed interface Content {
-        data class Playlist(val items: List<ScreenItem>) : Content
+        data class Playlist(val items: List<ScreenItem>, val stepped: Boolean) : Content
 
         data class Logo(val file: Path) : Content
 
@@ -62,7 +62,7 @@ object MpvScene {
     }
 
     private fun contentOf(state: ScreenState): Content = when {
-        state.mode == ScreenMode.PLAYLIST && state.items.isNotEmpty() -> Content.Playlist(state.items)
+        state.mode == ScreenMode.PLAYLIST && state.items.isNotEmpty() -> Content.Playlist(state.items, state.stepped)
         state.mode == ScreenMode.IDLE && state.idleLogo != null -> Content.Logo(state.idleLogo)
         else -> Content.Nothing
     }
@@ -79,20 +79,26 @@ object MpvScene {
                     MediaKind.WEB -> webStream(item.url.orEmpty())
                     MediaKind.IMAGE, MediaKind.VIDEO -> item.file.toString()
                 }
-                loadfile(target, if (index == 0) "replace" else "append", options(item, content.items.size == 1))
+                val options = options(item, content.items.size == 1, content.stepped)
+                loadfile(target, if (index == 0) "replace" else "append", options)
             }
         }
 
-    /** A lone item stays up or loops in place; reloading it would flash black between plays. */
-    private fun options(item: ScreenItem, alone: Boolean): String {
+    /**
+     * A lone item stays up or loops in place; reloading it would flash black between plays. One step
+     * of a rotation ([stepped]) has no time of its own, since the engine moves on — except a video
+     * without one, which plays to its end, where mpv's end-file moves it on.
+     */
+    private fun options(item: ScreenItem, alone: Boolean, stepped: Boolean): String {
         val stream = STREAM_OPTIONS.takeIf { item.kind == MediaKind.STREAM }
         val playback = when {
             // A page's frames come as they are drawn and none when it is still, so mpv shows each as
             // it arrives, holds no buffer, and the stream never ends while the page is up.
             item.kind == MediaKind.WEB -> WEB_OPTIONS
-            item.kind == MediaKind.IMAGE && alone -> "image-display-duration=inf"
+            item.kind == MediaKind.IMAGE && (alone || stepped) -> "image-display-duration=inf"
             item.kind == MediaKind.IMAGE ->
                 "image-display-duration=${seconds(item.durationMs ?: ScreenItem.DEFAULT_PICTURE_MS)}"
+            stepped -> "loop-file=inf".takeUnless { item.kind == MediaKind.VIDEO && item.durationMs == null }
             item.durationMs != null -> "end=${seconds(item.durationMs)}"
             alone -> "loop-file=inf"
             else -> null
