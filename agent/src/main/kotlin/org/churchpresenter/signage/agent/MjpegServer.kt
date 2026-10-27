@@ -67,12 +67,13 @@ class MjpegServer(private val repeatMs: Long = REPEAT_MS) : Closeable {
             var seen = -1L
             while (true) {
                 val frame = nextFrame(key, seen) ?: continue
+                // Counted before it is written, so whoever has read it finds it counted.
+                if (frame.seq != seen) sent.incrementAndGet()
+                seen = frame.seq
                 out.write(partHeader(frame.jpeg.size))
                 out.write(frame.jpeg)
                 out.write(CRLF)
                 out.flush()
-                if (frame.seq != seen) sent.incrementAndGet()
-                seen = frame.seq
             }
         } catch (_: IOException) {
             // mpv closed the stream: it moved on to something else.
