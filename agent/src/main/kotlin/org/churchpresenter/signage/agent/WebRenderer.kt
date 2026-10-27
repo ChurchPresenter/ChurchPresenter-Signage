@@ -46,6 +46,8 @@ class WebRenderer(
     /** Above this, in KiB, Chromium is restarted: a page left up for days must not take the machine. */
     private val memoryLimitKb: Long = Chromium.memoryLimitKb(Memory.read()?.totalKb),
     private val watchEveryMs: Long = WATCH_EVERY_MS,
+    /** Milliseconds on a clock that only goes forward, for pacing frames. */
+    private val now: () -> Long = { System.nanoTime() / NANOS_PER_MS },
 ) {
     /** Where pages are drawn: [Chromium], or a fake in tests. */
     interface Browser {
@@ -160,6 +162,7 @@ class WebRenderer(
             },
         )
         var loaded = CompletableDeferred<Unit>()
+        val pacer = FramePacer(wanted.fps)
         launch {
             try {
                 for (event in page.events) {
@@ -167,7 +170,7 @@ class WebRenderer(
                         "Page.loadEventFired" -> loaded.complete(Unit)
                         "Page.screencastFrame" -> {
                             val data = event.params["data"]?.jsonPrimitive?.contentOrNull
-                            data?.let { server.publish(key, Base64.getDecoder().decode(it)) }
+                            if (data != null && pacer.take(now())) server.publish(key, Base64.getDecoder().decode(data))
                             // Acknowledged with its own session, or Chromium sends no more.
                             val ack = buildJsonObject { event.params["sessionId"]?.let { put("sessionId", it) } }
                             page.send("Page.screencastFrameAck", ack)
@@ -233,22 +236,17 @@ class WebRenderer(
         put("quality", JPEG_QUALITY)
         put("maxWidth", wanted.width)
         put("maxHeight", wanted.height)
-        put("everyNthFrame", everyNthFrame(wanted.fps))
     }
 
     companion object {
         const val LOAD_TIMEOUT_MS = 15_000L
         const val WATCH_EVERY_MS = 30_000L
 
-        /** How often Chromium draws a page that moves. */
-        private const val CHROMIUM_FPS = 60
-
-        /** Which of Chromium's frames reach the screen for at most [fps] a second: every fourth for 15. */
-        fun everyNthFrame(fps: Int): Int = (CHROMIUM_FPS / fps.coerceIn(1, CHROMIUM_FPS)).coerceAtLeast(1)
         private const val JPEG_QUALITY = 80
         private const val HALF_TURN = 180
         private const val KEY_CHARS = 16
         private const val MS_PER_SECOND = 1000
+        private const val NANOS_PER_MS = 1_000_000L
 
         /** A page's name in the stream's path: no URL characters, and the same for the same URL. */
         fun key(url: String): String = sha256Hex(url.toByteArray()).take(KEY_CHARS)
