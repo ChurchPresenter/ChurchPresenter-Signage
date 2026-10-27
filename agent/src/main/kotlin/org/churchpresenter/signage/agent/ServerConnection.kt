@@ -39,10 +39,21 @@ class ServerConnection(
         }
     }
 
+    /**
+     * Tries the addresses known without looking, then whatever advertises on the network that was not
+     * tried. Only a known address is trusted to release this screen: one found on the network may be
+     * another ChurchPresenter, which does not know the screen and must not make it forget its owner.
+     */
     private suspend fun connectToAny(): SessionNext? {
-        for (address in locator.candidates(store.identity())) {
+        val known = locator.known(store.identity())
+        tryEach(known, trusted = true)?.let { return it }
+        return tryEach(locator.browse() - known.toSet(), trusted = false)
+    }
+
+    private suspend fun tryEach(addresses: List<String>, trusted: Boolean): SessionNext? {
+        for (address in addresses) {
             try {
-                return connect(address)
+                return connect(address, trusted)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -54,7 +65,7 @@ class ServerConnection(
         return null
     }
 
-    private suspend fun connect(address: String): SessionNext {
+    private suspend fun connect(address: String, trusted: Boolean): SessionNext {
         var next = SessionNext.STAY
         val token = store.identity().token
         try {
@@ -84,6 +95,7 @@ class ServerConnection(
             }
         } catch (e: WebSocketException) {
             if (token != null && HttpStatusCode.Unauthorized.value.toString() in e.message.orEmpty()) {
+                if (!trusted) throw IOException("a ChurchPresenter that does not know this screen", e)
                 session.onUnauthorized()
                 return SessionNext.RECONNECT
             }

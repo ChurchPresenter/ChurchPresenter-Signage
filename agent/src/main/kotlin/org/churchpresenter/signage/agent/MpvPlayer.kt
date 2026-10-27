@@ -31,6 +31,8 @@ class MpvPlayer(
     /** Told each time mpv exits by itself or fails to start, not on a refresh. */
     private val onExit: () -> Unit = {},
     private val restartDelayMs: Long = RESTART_DELAY_MS,
+    /** The local stream a web page is drawn into, from its URL; see [WebRenderer.streamUrl]. */
+    private val webStream: (String) -> String = { it },
 ) {
     /** A running mpv the player can drive. */
     interface Session : Closeable {
@@ -86,7 +88,7 @@ class MpvPlayer(
         val exited = async { session.awaitExit() }
         val restartAsked = async {
             state.takeWhile { it.restartToken == token }.collect { next ->
-                session.send(MpvScene.commands(shown, next, blank))
+                session.send(MpvScene.commands(shown, next, blank, webStream))
                 shown = next
             }
         }
@@ -122,6 +124,8 @@ class MpvProcessLauncher(
     private val extraArgs: List<String>,
     private val ipcPath: Path,
     private val windows: Boolean = System.getProperty("os.name").startsWith("Windows"),
+    /** Told when mpv could not play something it was given, such as a stream that does not answer. */
+    private val onFileError: () -> Unit = {},
 ) : MpvPlayer.Launcher {
     /** The options whose names differ between the mpv versions the player runs on, read from mpv once. */
     private val versionArgs: List<String> by lazy {
@@ -188,7 +192,7 @@ class MpvProcessLauncher(
         var waited = 0L
         while (true) {
             try {
-                return MpvIpc(if (windows) MpvIpc.NamedPipe(ipcPath) else MpvIpc.UnixSocket(ipcPath))
+                return MpvIpc(if (windows) MpvIpc.NamedPipe(ipcPath) else MpvIpc.UnixSocket(ipcPath), onFileError)
             } catch (e: IOException) {
                 if (!process.isAlive) throw IOException("mpv exited with ${process.exitValue()}", e)
                 if (waited >= CONNECT_TIMEOUT_MS) throw IOException("mpv's IPC did not open", e)
@@ -248,9 +252,12 @@ class MpvProcessLauncher(
             "--loop-playlist=inf",
             "--hwdec=auto-safe",
             "--video-sync=display-resample",
-            // ffmpeg warns on every video while it looks for hardware the machine does not have.
-            "--msg-level=all=warn,input=error,ffmpeg=error",
+            // ffmpeg warns on every video while it looks for hardware the machine does not have, and
+            // lavf on every web page's stream, which carries no timestamps by design.
+            "--msg-level=all=warn,input=error,ffmpeg=error,lavf=error",
             "--screenshot-format=jpg",
+            // A stream opened through yt-dlp (YouTube and the like): no larger than the screen.
+            "--ytdl-format=bestvideo[height<=?1080]/best[height<=?1080]/best",
             "--input-ipc-server=$ipcPath",
         )
 

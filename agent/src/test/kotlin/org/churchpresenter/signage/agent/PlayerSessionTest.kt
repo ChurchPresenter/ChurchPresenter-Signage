@@ -141,15 +141,15 @@ class PlayerSessionTest {
 
     @Test
     fun aPlayerListsOnlyWhatItCanDo() = runTest {
-        assertEquals(listOf(Features.WIPE), session.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.STREAM), session.hello().features)
         val app = AppFolder(root.resolve("app"))
         val withPreview = sessionWith(previews = PreviewMaker({ false }, root), app = app)
-        assertEquals(listOf(Features.WIPE, Features.PREVIEW), withPreview.hello().features)
+        assertEquals(listOf(Features.WIPE, Features.STREAM, Features.PREVIEW), withPreview.hello().features)
         root.resolve("app/0.1.0").createDirectories()
         Files.createSymbolicLink(root.resolve("app/current"), Path.of("0.1.0"))
         val updater = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
         assertEquals(
-            listOf(Features.WIPE, Features.PREVIEW, Features.UPDATE),
+            listOf(Features.WIPE, Features.STREAM, Features.PREVIEW, Features.UPDATE),
             sessionWith(app = app, previews = PreviewMaker({ false }, root), updater = updater).hello().features,
         )
     }
@@ -161,6 +161,29 @@ class PlayerSessionTest {
         assertEquals(SessionNext.STAY, withPreview.handle(ServerMessage.PreviewRequest(maxWidth = 320)))
         val preview = withPreview.outgoing.tryReceive().getOrNull() as PlayerMessage.Preview
         assertEquals(320, preview.width)
+    }
+
+    @Test
+    fun webPagesAndTheirTestAreListedOnlyWhenThePlayerCanDoThem() = runTest {
+        val test = WebTest(engine, { 0 }, pause = {}, settleMs = 0)
+        assertEquals(listOf(Features.WIPE, Features.STREAM), sessionWith(webTest = test).hello().features)
+        assertEquals(
+            listOf(Features.WIPE, Features.STREAM, Features.WEB, Features.WEB_TEST),
+            sessionWith(web = true, webTest = test, background = backgroundScope).hello().features,
+        )
+    }
+
+    @Test
+    fun aWebTestRunsInTheBackgroundAndAnswers() = runTest {
+        var frames = 0L
+        val test = WebTest(engine, { frames }, pause = { frames += 15 }, settleMs = 0)
+        val testing = sessionWith(web = true, webTest = test, background = backgroundScope)
+        assertEquals(SessionNext.STAY, testing.handle(ServerMessage.WebTest(fps = listOf(15), secondsEach = 2)))
+        testScheduler.advanceUntilIdle()
+        val result = testing.outgoing.receive() as PlayerMessage.WebTestResult
+        assertEquals(15, result.runs.single().fps)
+        // Without the test, the request is ignored.
+        assertEquals(SessionNext.STAY, sessionWith().handle(ServerMessage.WebTest()))
     }
 
     @Test
@@ -191,6 +214,8 @@ class PlayerSessionTest {
         updater: Updater? = null,
         app: AppFolder? = null,
         background: CoroutineScope? = null,
+        web: Boolean = false,
+        webTest: WebTest? = null,
     ) = PlayerSession(
         store, engine, AgentInfo("0.1.0", Platform.LINUX_ARM64, 1920, 1080),
         sync = { ManifestSync(store, source).sync() },
@@ -199,6 +224,8 @@ class PlayerSessionTest {
         updater = updater,
         app = app,
         background = background,
+        web = web,
+        webTest = webTest,
     )
 
     @Test

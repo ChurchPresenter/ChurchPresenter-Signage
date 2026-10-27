@@ -33,11 +33,19 @@ private val turnsByOrientation = mapOf(
     Orientation.PORTRAIT_FLIPPED to 270,
 )
 
-/** One playlist entry, as a file on disk. A picture with no [durationMs] stays [DEFAULT_PICTURE_MS]. */
+/**
+ * One playlist entry: a [file] on disk, or for a link its [url]. A picture with no [durationMs] stays
+ * [DEFAULT_PICTURE_MS]; a link with none stays up for as long as its playlist plays.
+ */
 data class ScreenItem(
-    val file: Path,
+    val file: Path?,
     val kind: MediaKind,
     val durationMs: Long?,
+    val url: String? = null,
+    /** How often a web page reloads; never when null. */
+    val refreshMs: Long? = null,
+    /** At most how many frames a second a web page is drawn at; the protocol's default when null. */
+    val maxFps: Int? = null,
 ) {
     companion object {
         const val DEFAULT_PICTURE_MS = 8_000L

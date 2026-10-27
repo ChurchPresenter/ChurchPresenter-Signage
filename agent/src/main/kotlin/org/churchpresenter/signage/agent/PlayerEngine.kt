@@ -23,8 +23,13 @@ class PlayerEngine(
     private val store: PlayerStore,
     private val cec: Cec,
     private val clock: () -> Instant = Instant::now,
+    /** Links that failed lately, which do not play until they are tried again. */
+    private val links: LinkHealth = LinkHealth(),
+    /** Whether this player can draw web pages: it has a Chromium. */
+    private val web: Boolean = false,
 ) {
     private val policy = TvPowerPolicy()
+    private val items = PlayableItems(store.files, links, web)
     private var manifest: StoredManifest? = store.manifest()
     private var override: ScreenOverride? = store.override()
     private var message: String? = null
@@ -39,6 +44,14 @@ class PlayerEngine(
 
     var cecState: CecState = CecState.UNKNOWN
         private set
+
+    /** What the screen shows instead of its playlist while a [WebTest] runs; null otherwise. */
+    @Volatile
+    var testing: ScreenItem? = null
+        set(value) {
+            field = value
+            tick()
+        }
 
     /** Re-reads the manifest and override after a sync or a switch. */
     @Synchronized
@@ -66,6 +79,14 @@ class PlayerEngine(
         tick()
     }
 
+    /** [urls] could not be opened; their playlists give way until they are tried again. */
+    @Synchronized
+    fun linkFailed(urls: Collection<String>) {
+        val now = clock()
+        urls.forEach { links.failed(it, now) }
+        tick()
+    }
+
     fun probeCec() {
         cecState = if (cec.probe()) CecState.WORKING else CecState.UNAVAILABLE
     }
@@ -79,13 +100,13 @@ class PlayerEngine(
             decision = null
             _state.value = ScreenState(
                 ScreenMode.IDLE, message = message, identify = identifying, restartToken = restartToken,
-            )
+            ).showing(testing)
             return
         }
-        val next = decide(stored.manifest, override, now, ::isPlayable)
+        val next = decide(stored.manifest, override, now) { isPlayable(it, now) }
         decision = next
         policy.next(next.tv)?.let { command -> if (cecState != CecState.UNAVAILABLE) cec.send(command) }
-        _state.update { stateFor(stored.manifest, next, identifying) }
+        _state.update { stateFor(stored.manifest, next, identifying).showing(testing) }
     }
 
     /** Ticks once a second until cancelled. */
@@ -96,8 +117,8 @@ class PlayerEngine(
         }
     }
 
-    private fun isPlayable(playlist: Playlist): Boolean =
-        playlist.items.isNotEmpty() && playlist.items.all { store.files.has(it.sha256) }
+    private fun isPlayable(playlist: Playlist, now: Instant): Boolean =
+        playlist.items.isNotEmpty() && playlist.items.all { items.canPlay(it, now) }
 
     private fun stateFor(manifest: Manifest, decision: ScreenDecision, identifying: String?): ScreenState {
         val base = ScreenState(
@@ -114,13 +135,11 @@ class PlayerEngine(
             Show.Idle -> base
             is Show.PlaylistShow -> {
                 val playlist = manifest.playlist(show.playlistId) ?: return base
-                // isPlayable() has checked every file is here, so none of these paths is null.
                 base.copy(
                     mode = ScreenMode.PLAYLIST,
                     playlistId = playlist.id,
-                    items = playlist.items.mapNotNull { item ->
-                        store.files.path(item.sha256)?.let { ScreenItem(it, item.kind, item.durationMs) }
-                    },
+                    // isPlayable() has checked each item can play, so none is dropped.
+                    items = playlist.items.mapNotNull(items::screenItem),
                 )
             }
         }
@@ -130,3 +149,7 @@ class PlayerEngine(
         const val TICK_MS = 1_000L
     }
 }
+
+/** This state with [test] on screen instead, while a [WebTest] runs; unchanged when there is none. */
+private fun ScreenState.showing(test: ScreenItem?): ScreenState =
+    test?.let { copy(mode = ScreenMode.PLAYLIST, playlistId = null, items = listOf(it), message = null) } ?: this

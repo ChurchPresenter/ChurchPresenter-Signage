@@ -10,6 +10,7 @@ import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.Platform
 import org.churchpresenter.signage.core.ServerMessage
 import org.churchpresenter.signage.core.UpdateState
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
 /** What this agent tells ChurchPresenter about itself in its hello. */
@@ -33,13 +34,22 @@ class PlayerSession(
     private val app: AppFolder? = null,
     /** Where a long job, an update, runs, so the connection keeps answering meanwhile. */
     private val background: CoroutineScope? = null,
+    /** Whether this player draws web pages: it found a Chromium. */
+    private val web: Boolean = false,
+    /** Measures how smoothly it shows one, when it can draw web pages. */
+    private val webTest: WebTest? = null,
 ) {
+    private val testing = AtomicBoolean(false)
+
     /** Messages for ChurchPresenter that are not answers to its own: previews and update progress. */
     val outgoing = Channel<PlayerMessage>(OUTGOING_CAPACITY, BufferOverflow.DROP_OLDEST)
 
     /** What this player can do beyond the basics, as its hello lists it. */
     val features: List<String> = listOfNotNull(
         Features.WIPE,
+        Features.STREAM,
+        Features.WEB.takeIf { web },
+        Features.WEB_TEST.takeIf { webTest != null && background != null },
         Features.PREVIEW.takeIf { previews != null },
         Features.UPDATE.takeIf { updater != null && app?.canUpdate() == true },
     )
@@ -132,6 +142,21 @@ class PlayerSession(
         }
         is ServerMessage.PreviewRequest -> {
             previews?.make(message.maxWidth)?.let { outgoing.trySend(it) }
+            SessionNext.STAY
+        }
+        is ServerMessage.WebTest -> {
+            val test = webTest
+            // One at a time: a second request while one runs is answered by the first.
+            if (test != null && background != null && testing.compareAndSet(false, true)) {
+                Log.info("Testing web pages at ${message.fps.joinToString("/")} frames a second")
+                background.launch {
+                    try {
+                        outgoing.trySend(test.run(message))
+                    } finally {
+                        testing.set(false)
+                    }
+                }
+            }
             SessionNext.STAY
         }
         is ServerMessage.UpdateAvailable -> {

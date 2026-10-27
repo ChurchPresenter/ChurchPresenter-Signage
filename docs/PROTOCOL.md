@@ -27,6 +27,7 @@ The player's first message is `hello`. Then:
 | player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired, `features` |
 | player | `status` | what it shows, last sync, free disk, CEC state, errors; on change and every minute |
 | player | `preview` | a JPEG of what the screen shows (base64), its size and when it was taken; answers `preview_request` |
+| player | `web_test_result` | for each frame rate tried: the rate asked for, the average that reached the screen, how busy the processor was and its highest temperature (each null where unknown); or why the test could not run |
 | player | `update_progress` | version, `downloading` (with a percentage), `checking`, `installing`, `restarting`, `failed` or `rolled_back`, and why |
 | server | `unsupported` | the player's protocol range excludes ChurchPresenter's; connection closes |
 | server | `pairing_pending` | waiting for approval in the Signage tab |
@@ -39,10 +40,13 @@ The player's first message is `hello`. Then:
 | server | `refresh` | restart what draws the screen (mpv) |
 | server | `wipe` | delete everything stored (content, manifests, a manual switch) and fetch the manifest again; stays paired |
 | server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
+| server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`); ChurchPresenter
-sends `wipe`, `preview_request` and `update_available` only to players that list them. Both sides ignore message
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`,
+`web_test`); ChurchPresenter sends `wipe`, `preview_request`, `update_available` and `web_test` only to
+players that list them,
+and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
 types they do not know.
 
 ## Updates
@@ -73,7 +77,22 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
   start runs past midnight; `days` are the days a block starts on.
 - `schedule[].action`: `play` (a playlist, TV on), `tv_off`, `service` (keep playing the default
   playlist, send nothing over CEC).
-- A playlist item's `durationMs` is null for a video that plays to its end.
+- A playlist item's `kind` is `image`, `video`, `stream` or `web`. A file (`image`, `video`) is named
+  by `sha256`; a link (`stream`, `web`) has `url` instead and an empty `sha256`, and the player
+  opens it when it plays, with no download.
+  - `stream`: a video or live stream mpv opens itself (a file over http, HLS, RTSP, or a page
+    yt-dlp reads, such as YouTube).
+  - `web`: a web page drawn off screen by the player's Chromium, at most `maxFps` frames a second
+    (15 when it is left out; ChurchPresenter sends 30 for a link set to move smoothly);
+    `refreshMs`, when set, reloads it that often.
+  - A player older than these kinds cannot decode a manifest that has one, so it never gets one
+    (`features` above); a playlist made only of links it cannot play shows its idle card.
+  - A link that does not load within 15 s, or a stream that stops answering, is set aside for a
+    minute: the screen falls back as for any playlist that cannot play, and never shows an error page.
+  - `url`, `refreshMs` and `maxFps` are left out of an item that has none, so a manifest without links
+    encodes as it did before them.
+- A playlist item's `durationMs` is null for a video that plays to its end, and for a link that
+  stays up for as long as its playlist plays.
 - `diagnostics` says whether the screen may send crash reports: the owning ChurchPresenter's
   analytics setting. A player with no manifest reports.
 

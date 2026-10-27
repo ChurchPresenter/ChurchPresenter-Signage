@@ -28,7 +28,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * One connection to mpv's JSON IPC: each command goes out as a line, and a reader thread takes the
  * replies and events that come back, logging any command mpv refused and any file it could not play.
  */
-class MpvIpc(private val transport: Transport) : Closeable {
+class MpvIpc(
+    private val transport: Transport,
+    /** Told when mpv could not play something it was given, from the reader thread. */
+    private val onFileError: () -> Unit = {},
+) : Closeable {
     /** A full-duplex byte stream to mpv: a Unix socket, or a named pipe on Windows. */
     interface Transport : Closeable {
         /** Reads into [buffer]; -1 at the end. */
@@ -117,6 +121,7 @@ class MpvIpc(private val transport: Transport) : Closeable {
             message["reason"]?.jsonPrimitive?.contentOrNull == "error"
         ) {
             Log.warn("mpv could not play a file: ${message["file_error"]?.jsonPrimitive?.contentOrNull}")
+            onFileError()
         }
     }
 

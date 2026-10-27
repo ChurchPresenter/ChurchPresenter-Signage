@@ -12,7 +12,7 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), links (`LinkHealth`; web pages by `WebRenderer` in a headless `Chromium`, handed to mpv as MJPEG by `MjpegServer`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
 
 The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
 (`Fixtures.kt`) and never a real mpv; `MpvIpcTest` talks to a Unix socket of its own, `MpvPlayerTest` to a
@@ -30,7 +30,8 @@ start; never anything in a Service block. A TV on another HDMI input must never 
 `Diagnostics` sends to Sentry, project **church-projector / church-presenter-signage** (DSN in
 `agent/src/main/resources/sentry.properties`, committed as ChurchPresenter's is). Sent: uncaught
 exceptions, every `Log.error`, "An update was rolled back", and "mpv keeps exiting" (`ExitWatch`:
-three exits or failed starts in ten minutes, then quiet for an hour, with mpv's last output lines).
+three exits or failed starts in ten minutes, then quiet for an hour, with mpv's last output lines;
+never for an mpv that is not installed, which never tells its version).
 `Log.warn` is a breadcrumb. Release builds are `production`; anything else is `development` —
 filter on it.
 - **Consent is the owner's**: `Manifest.diagnostics` carries ChurchPresenter's analytics setting and

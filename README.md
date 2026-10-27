@@ -26,11 +26,14 @@ curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/l
 ```
 
 A Raspberry Pi 5 (4 GB) is the reference; a Pi 4 is fine for 1080p pictures. An SSD lasts longer
-than an SD card in a screen that runs all day.
+than an SD card in a screen that runs all day. Chromium, which draws web-page links, is the
+largest part of the install; leave a few GB free.
 
 ### Mini PC — Linux
 
-On a fresh **Debian** or **Ubuntu Server**, minimal, with no desktop installed:
+On a fresh **Debian** or **Ubuntu Server**, minimal, with no desktop installed. Ubuntu has Chromium
+only as a snap, which the install does not use, so a screen on Ubuntu plays pictures, videos and
+streams but not web pages:
 
 ```bash
 curl -fsSL https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download/install.sh | sudo bash

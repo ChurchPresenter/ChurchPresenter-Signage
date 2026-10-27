@@ -56,7 +56,7 @@ fi
 
 has_package() { apt-cache policy "$1" 2>/dev/null | grep -q 'Candidate: [^(]'; }
 
-say "Installing mpv, the video drivers and the CEC tools"
+say "Installing mpv, Chromium, the video drivers and the CEC tools"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 packages="mpv v4l-utils curl ca-certificates fonts-dejavu-core"
@@ -66,6 +66,12 @@ if [ "$platform" = linux-x64 ]; then
     has_package "$driver" && packages="$packages $driver"
   done
 fi
+# Links: yt-dlp lets mpv open YouTube and similar pages as streams; Chromium draws web pages. Only
+# Chromium's own package: where apt offers it only as a snap (Ubuntu), no web pages, unless a
+# Chromium or Chrome is already installed.
+for extra in yt-dlp chromium; do
+  has_package "$extra" && packages="$packages $extra"
+done
 # shellcheck disable=SC2086
 apt-get install -y -q --no-install-recommends $packages
 mpv_path="$(command -v mpv || true)"

@@ -36,15 +36,19 @@ fun main(args: Array<String>) {
     config.address?.let { store.saveIdentity(store.identity().copy(fixedAddress = it)) }
     Log.info("Signage agent $AGENT_VERSION, player ${store.identity().playerId}, data in ${config.dataDir}")
 
-    val engine = PlayerEngine(store, if (config.cec) CecCtl() else NoCec)
+    val chromium = findChromium()
+    val engine = PlayerEngine(store, if (config.cec) CecCtl() else NoCec, web = chromium != null)
     val client = HttpClient(CIO) {
         install(WebSockets) { pingIntervalMillis = PING_MS }
         install(HttpTimeout) { connectTimeoutMillis = CONNECT_TIMEOUT_MS }
     }
+    val web = chromium?.let { webParts(it, config, client, engine) }
     var address: String? = null
     val platform = AgentConfig.currentPlatform()
     val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
-    val launcher = MpvProcessLauncher(config.mpv, config.mpvArgs, ipcPath(config))
+    val launcher = MpvProcessLauncher(
+        config.mpv, config.mpvArgs, ipcPath(config), onFileError = { engine.streamFailed() },
+    )
     val output = config.mpvArgs.firstOrNull { it.startsWith("--vo=") }?.removePrefix("--vo=") ?: "default"
     startDiagnostics(store, platform, output, app)
     val exits = ExitWatch()
@@ -52,15 +56,8 @@ fun main(args: Array<String>) {
         engine.state,
         launcher,
         MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
-        onExit = {
-            if (exits.exited()) {
-                Diagnostics.report(
-                    "mpv keeps exiting",
-                    mapOf("mpv.version" to launcher.version, "mpv.output" to output),
-                    launcher.recentOutput(),
-                )
-            }
-        },
+        onExit = { mpvExited(exits, launcher, output) },
+        webStream = web?.renderer?.let { it::streamUrl } ?: { it },
     )
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession
@@ -94,6 +91,8 @@ fun main(args: Array<String>) {
         updater = updater,
         app = app,
         background = background,
+        web = web != null,
+        webTest = web?.test,
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
@@ -102,12 +101,49 @@ fun main(args: Array<String>) {
         launch { engine.run() }
         launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
         launch { player.run() }
+        web?.let { launch { it.renderer.run(engine.state) } }
         launch {
             // A new version that has run this long without crashing counts as healthy even unpaired.
             delay(HEALTHY_AFTER_MS)
             app.markHealthy()
         }
     }
+}
+
+/** The Chromium that draws web pages, said in the log either way. */
+private fun findChromium(): String? = Chromium.find().also { found ->
+    Log.info(if (found != null) "Web pages drawn by $found" else "No Chromium found: web pages are not offered")
+}
+
+/**
+ * Reports an mpv that keeps exiting, once it has three times in ten minutes. Not an mpv that is not
+ * there at all (it never told its version): a missing program is the install's, not a defect, and
+ * each failed start is already a warning in the log.
+ */
+private fun mpvExited(exits: ExitWatch, launcher: MpvProcessLauncher, output: String) {
+    if (launcher.version.isEmpty() || !exits.exited()) return
+    Diagnostics.report(
+        "mpv keeps exiting",
+        mapOf("mpv.version" to launcher.version, "mpv.output" to output),
+        launcher.recentOutput(),
+    )
+}
+
+/** What draws web pages, and the test of how smoothly it does. */
+private class WebParts(val renderer: WebRenderer, val test: WebTest)
+
+/** Draws web pages with the Chromium at [executable], its profile in the data folder. */
+private fun webParts(executable: String, config: AgentConfig, client: HttpClient, engine: PlayerEngine): WebParts {
+    val frames = MjpegServer()
+    val renderer = WebRenderer(
+        browser = Chromium(executable, config.dataDir.resolve("web-profile"), client),
+        server = frames,
+        panelWidth = config.screenWidth,
+        panelHeight = config.screenHeight,
+        onFailed = { url -> engine.linkFailed(listOf(url)) },
+        reachable = { url -> client.answers(url, WebRenderer.LOAD_TIMEOUT_MS) },
+    )
+    return WebParts(renderer, WebTest(engine, frames::framesSent))
 }
 
 /**
