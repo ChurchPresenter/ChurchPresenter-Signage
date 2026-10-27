@@ -27,6 +27,7 @@ The player's first message is `hello`. Then:
 | player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired, `features` |
 | player | `status` | what it shows, last sync, free disk, CEC state, errors; on change and every minute |
 | player | `preview` | a JPEG of what the screen shows (base64), its size and when it was taken; answers `preview_request` |
+| player | `web_test_result` | for each frame rate tried: the rate asked for, the average that reached the screen, how busy the processor was and its highest temperature (each null where unknown); or why the test could not run |
 | player | `update_progress` | version, `downloading` (with a percentage), `checking`, `installing`, `restarting`, `failed` or `rolled_back`, and why |
 | server | `unsupported` | the player's protocol range excludes ChurchPresenter's; connection closes |
 | server | `pairing_pending` | waiting for approval in the Signage tab |
@@ -39,10 +40,12 @@ The player's first message is `hello`. Then:
 | server | `refresh` | restart what draws the screen (mpv) |
 | server | `wipe` | delete everything stored (content, manifests, a manual switch) and fetch the manifest again; stays paired |
 | server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
+| server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`);
-ChurchPresenter sends `wipe`, `preview_request` and `update_available` only to players that list them,
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`,
+`web_test`); ChurchPresenter sends `wipe`, `preview_request`, `update_available` and `web_test` only to
+players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
 types they do not know.
 

@@ -6,6 +6,7 @@ import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Hands the frames [WebRenderer] draws to mpv: `GET /web/<key>` on the loopback interface answers
@@ -20,6 +21,10 @@ class MjpegServer(private val repeatMs: Long = REPEAT_MS) : Closeable {
     private val lock = Object()
     private val frames = HashMap<String, Frame>()
     private var nextSeq = 0L
+    private val sent = AtomicLong()
+
+    /** How many new frames have gone to mpv so far, each counted once however many streams carried it. */
+    val framesSent: Long get() = sent.get()
 
     /** The port it listens on, on 127.0.0.1. */
     val port: Int get() = socket.localPort
@@ -66,6 +71,7 @@ class MjpegServer(private val repeatMs: Long = REPEAT_MS) : Closeable {
                 out.write(frame.jpeg)
                 out.write(CRLF)
                 out.flush()
+                if (frame.seq != seen) sent.incrementAndGet()
                 seen = frame.seq
             }
         } catch (_: IOException) {

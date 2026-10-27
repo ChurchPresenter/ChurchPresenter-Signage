@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Web page test</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif; color: #fff; }
+  body { background: linear-gradient(120deg, #12324a, #3a1f4f, #12324a); background-size: 300% 300%;
+         animation: sky 8s ease-in-out infinite alternate; }
+  @keyframes sky { from { background-position: 0% 50% } to { background-position: 100% 50% } }
+  h1 { position: absolute; top: 8%; width: 100%; text-align: center; font-size: 5vh; font-weight: 600; margin: 0; }
+  #clock { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 14vh;
+           font-variant-numeric: tabular-nums; }
+  .ticker { position: absolute; bottom: 8%; white-space: nowrap; font-size: 4vh; animation: tick 12s linear infinite; }
+  @keyframes tick { from { transform: translateX(100vw) } to { transform: translateX(-100%) } }
+  .dot { position: absolute; width: 6vh; height: 6vh; border-radius: 50%; opacity: .8; }
+</style></head>
+<body>
+<h1>ChurchPresenter · testing web pages</h1>
+<div id="clock"></div>
+<div class="ticker">This page moves everywhere at once, so the test sees how smoothly this screen can show a busy web page.</div>
+<script>
+  const clock = document.getElementById('clock');
+  const dots = [];
+  for (let i = 0; i < 24; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    d.style.background = `hsl(${i * 15}, 80%, 60%)`;
+    document.body.appendChild(d);
+    dots.push({ el: d, x: Math.random(), y: Math.random(), dx: (Math.random() - .5) / 90, dy: (Math.random() - .5) / 90 });
+  }
+  function frame(t) {
+    clock.textContent = (t / 1000).toFixed(2);
+    for (const d of dots) {
+      d.x += d.dx; d.y += d.dy;
+      if (d.x < 0 || d.x > .95) d.dx = -d.dx;
+      if (d.y < 0 || d.y > .9) d.dy = -d.dy;
+      d.el.style.transform = `translate(${d.x * 100}vw, ${d.y * 100}vh)`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body></html>

@@ -45,6 +45,14 @@ class PlayerEngine(
     var cecState: CecState = CecState.UNKNOWN
         private set
 
+    /** What the screen shows instead of its playlist while a [WebTest] runs; null otherwise. */
+    @Volatile
+    var testing: ScreenItem? = null
+        set(value) {
+            field = value
+            tick()
+        }
+
     /** Re-reads the manifest and override after a sync or a switch. */
     @Synchronized
     fun reloadFromStore() {
@@ -92,13 +100,13 @@ class PlayerEngine(
             decision = null
             _state.value = ScreenState(
                 ScreenMode.IDLE, message = message, identify = identifying, restartToken = restartToken,
-            )
+            ).showing(testing)
             return
         }
         val next = decide(stored.manifest, override, now) { isPlayable(it, now) }
         decision = next
         policy.next(next.tv)?.let { command -> if (cecState != CecState.UNAVAILABLE) cec.send(command) }
-        _state.update { stateFor(stored.manifest, next, identifying) }
+        _state.update { stateFor(stored.manifest, next, identifying).showing(testing) }
     }
 
     /** Ticks once a second until cancelled. */
@@ -141,3 +149,7 @@ class PlayerEngine(
         const val TICK_MS = 1_000L
     }
 }
+
+/** This state with [test] on screen instead, while a [WebTest] runs; unchanged when there is none. */
+private fun ScreenState.showing(test: ScreenItem?): ScreenState =
+    test?.let { copy(mode = ScreenMode.PLAYLIST, playlistId = null, items = listOf(it), message = null) } ?: this

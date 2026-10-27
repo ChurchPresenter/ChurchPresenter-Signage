@@ -42,7 +42,7 @@ fun main(args: Array<String>) {
         install(WebSockets) { pingIntervalMillis = PING_MS }
         install(HttpTimeout) { connectTimeoutMillis = CONNECT_TIMEOUT_MS }
     }
-    val web = chromium?.let { webRenderer(it, config, client, engine) }
+    val web = chromium?.let { webParts(it, config, client, engine) }
     var address: String? = null
     val platform = AgentConfig.currentPlatform()
     val app = AppFolder(config.dataDir.resolve("app")).also { it.cleanUp() }
@@ -65,7 +65,7 @@ fun main(args: Array<String>) {
                 )
             }
         },
-        webStream = web?.let { it::streamUrl } ?: { it },
+        webStream = web?.renderer?.let { it::streamUrl } ?: { it },
     )
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession
@@ -100,6 +100,7 @@ fun main(args: Array<String>) {
         app = app,
         background = background,
         web = web != null,
+        webTest = web?.test,
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
@@ -108,7 +109,7 @@ fun main(args: Array<String>) {
         launch { engine.run() }
         launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
         launch { player.run() }
-        web?.let { launch { it.run(engine.state) } }
+        web?.let { launch { it.renderer.run(engine.state) } }
         launch {
             // A new version that has run this long without crashing counts as healthy even unpaired.
             delay(HEALTHY_AFTER_MS)
@@ -122,16 +123,22 @@ private fun findChromium(): String? = Chromium.find().also { found ->
     Log.info(if (found != null) "Web pages drawn by $found" else "No Chromium found: web pages are not offered")
 }
 
+/** What draws web pages, and the test of how smoothly it does. */
+private class WebParts(val renderer: WebRenderer, val test: WebTest)
+
 /** Draws web pages with the Chromium at [executable], its profile in the data folder. */
-private fun webRenderer(executable: String, config: AgentConfig, client: HttpClient, engine: PlayerEngine) =
-    WebRenderer(
+private fun webParts(executable: String, config: AgentConfig, client: HttpClient, engine: PlayerEngine): WebParts {
+    val frames = MjpegServer()
+    val renderer = WebRenderer(
         browser = Chromium(executable, config.dataDir.resolve("web-profile"), client),
-        server = MjpegServer(),
+        server = frames,
         panelWidth = config.screenWidth,
         panelHeight = config.screenHeight,
         onFailed = { url -> engine.linkFailed(listOf(url)) },
         reachable = { url -> client.answers(url, WebRenderer.LOAD_TIMEOUT_MS) },
     )
+    return WebParts(renderer, WebTest(engine, frames::framesSent))
+}
 
 /**
  * Starts crash reporting while the owning ChurchPresenter allows it, and reports an update the
