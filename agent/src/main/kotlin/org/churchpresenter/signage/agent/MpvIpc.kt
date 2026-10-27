@@ -32,6 +32,8 @@ class MpvIpc(
     private val transport: Transport,
     /** Told when mpv could not play something it was given, from the reader thread. */
     private val onFileError: () -> Unit = {},
+    /** Told when mpv played something to its end, from the reader thread. */
+    private val onFileEnded: () -> Unit = {},
 ) : Closeable {
     /** A full-duplex byte stream to mpv: a Unix socket, or a named pipe on Windows. */
     interface Transport : Closeable {
@@ -117,11 +119,13 @@ class MpvIpc(
             awaited.remove(id)?.complete(done)
             return
         }
-        if (message["event"]?.jsonPrimitive?.contentOrNull == "end-file" &&
-            message["reason"]?.jsonPrimitive?.contentOrNull == "error"
-        ) {
-            Log.warn("mpv could not play a file: ${message["file_error"]?.jsonPrimitive?.contentOrNull}")
-            onFileError()
+        if (message["event"]?.jsonPrimitive?.contentOrNull != "end-file") return
+        when (message["reason"]?.jsonPrimitive?.contentOrNull) {
+            "error" -> {
+                Log.warn("mpv could not play a file: ${message["file_error"]?.jsonPrimitive?.contentOrNull}")
+                onFileError()
+            }
+            "eof" -> onFileEnded()
         }
     }
 

@@ -18,6 +18,8 @@ data class ScreenState(
     val identify: String? = null,
     /** Bumped by a refresh request; the player restarts mpv when it changes. */
     val restartToken: Int = 0,
+    /** One step of a rotation: [items] is the one on screen, and the engine, not mpv, moves on. */
+    val stepped: Boolean = false,
 )
 
 enum class ScreenMode { PLAYLIST, IDLE, BLANK }

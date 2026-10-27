@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.churchpresenter.signage.core.CecState
 import org.churchpresenter.signage.core.Manifest
-import org.churchpresenter.signage.core.Playlist
 import org.churchpresenter.signage.core.ScreenDecision
 import org.churchpresenter.signage.core.ScreenOverride
 import org.churchpresenter.signage.core.Show
@@ -30,6 +29,7 @@ class PlayerEngine(
 ) {
     private val policy = TvPowerPolicy()
     private val items = PlayableItems(store.files, links, web)
+    private val rotation = Rotation(items)
     private var manifest: StoredManifest? = store.manifest()
     private var override: ScreenOverride? = store.override()
     private var message: String? = null
@@ -103,10 +103,10 @@ class PlayerEngine(
             ).showing(testing)
             return
         }
-        val next = decide(stored.manifest, override, now) { isPlayable(it, now) }
+        val next = decide(stored.manifest, override, now) { items.canPlay(it, now) }
         decision = next
         policy.next(next.tv)?.let { command -> if (cecState != CecState.UNAVAILABLE) cec.send(command) }
-        _state.update { stateFor(stored.manifest, next, identifying).showing(testing) }
+        _state.update { stateFor(stored.manifest, next, identifying, now).showing(testing) }
     }
 
     /** Ticks once a second until cancelled. */
@@ -117,10 +117,19 @@ class PlayerEngine(
         }
     }
 
-    private fun isPlayable(playlist: Playlist, now: Instant): Boolean =
-        playlist.items.isNotEmpty() && playlist.items.all { items.canPlay(it, now) }
+    /** mpv played the item on screen to its end; a rotation moves on from a video without a time. */
+    @Synchronized
+    fun itemEnded() {
+        rotation.itemEnded()
+        tick()
+    }
 
-    private fun stateFor(manifest: Manifest, decision: ScreenDecision, identifying: String?): ScreenState {
+    private fun stateFor(
+        manifest: Manifest,
+        decision: ScreenDecision,
+        identifying: String?,
+        now: Instant,
+    ): ScreenState {
         val base = ScreenState(
             mode = ScreenMode.IDLE,
             orientation = manifest.screen.orientation,
@@ -130,18 +139,21 @@ class PlayerEngine(
             identify = identifying,
             restartToken = restartToken,
         )
-        return when (val show = decision.show) {
-            Show.Blank -> base.copy(mode = ScreenMode.BLANK)
-            Show.Idle -> base
-            is Show.PlaylistShow -> {
-                val playlist = manifest.playlist(show.playlistId) ?: return base
-                base.copy(
-                    mode = ScreenMode.PLAYLIST,
-                    playlistId = playlist.id,
-                    // isPlayable() has checked each item can play, so none is dropped.
-                    items = playlist.items.mapNotNull(items::screenItem),
-                )
+        val playlist = (decision.show as? Show.PlaylistShow)?.let { manifest.playlist(it.playlistId) }
+        if (playlist == null || !Rotation.isRotation(playlist)) rotation.reset()
+        return when {
+            decision.show == Show.Blank -> base.copy(mode = ScreenMode.BLANK)
+            playlist == null -> base
+            Rotation.isRotation(playlist) -> {
+                val step = rotation.current(playlist, now)?.let(items::screenItem) ?: return base
+                base.copy(mode = ScreenMode.PLAYLIST, playlistId = playlist.id, items = listOf(step), stepped = true)
             }
+            // canPlay() has checked each item can play, so none is dropped.
+            else -> base.copy(
+                mode = ScreenMode.PLAYLIST,
+                playlistId = playlist.id,
+                items = playlist.items.mapNotNull(items::screenItem),
+            )
         }
     }
 
