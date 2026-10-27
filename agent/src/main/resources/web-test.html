@@ -1,39 +1,61 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Web page test</title>
+<html><head><meta charset="utf-8"><title>Checking this screen</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif; color: #fff; }
-  body { background: linear-gradient(120deg, #12324a, #3a1f4f, #12324a); background-size: 300% 300%;
-         animation: sky 8s ease-in-out infinite alternate; }
-  @keyframes sky { from { background-position: 0% 50% } to { background-position: 100% 50% } }
-  h1 { position: absolute; top: 8%; width: 100%; text-align: center; font-size: 5vh; font-weight: 600; margin: 0; }
-  #clock { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 14vh;
-           font-variant-numeric: tabular-nums; }
-  .ticker { position: absolute; bottom: 8%; white-space: nowrap; font-size: 4vh; animation: tick 12s linear infinite; }
-  @keyframes tick { from { transform: translateX(100vw) } to { transform: translateX(-100%) } }
-  .dot { position: absolute; width: 6vh; height: 6vh; border-radius: 50%; opacity: .8; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; color: #eef2ff;
+               font-family: "DejaVu Sans", "Segoe UI", sans-serif; }
+  /* Three soft glows that drift over the whole screen, so every part of it changes each frame. */
+  .glow { position: absolute; width: 56vmax; height: 56vmax; left: -28vmax; top: -28vmax; border-radius: 50%;
+          will-change: transform; }
+  .teal   { background: radial-gradient(closest-side, rgba(45, 212, 191, .42), rgba(45, 212, 191, 0)); }
+  .violet { background: radial-gradient(closest-side, rgba(139, 92, 246, .45), rgba(139, 92, 246, 0)); }
+  .amber  { background: radial-gradient(closest-side, rgba(251, 191, 36, .28), rgba(251, 191, 36, 0)); }
+  main { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+         justify-content: center; text-align: center; }
+  .brand { font-size: 2.2vh; letter-spacing: .5em; text-transform: uppercase; opacity: .7; margin-bottom: 3vh; }
+  h1 { font-size: 9vh; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  p { font-size: 3vh; margin: 2.2vh 0 0; opacity: .78; font-weight: 400; }
+  .bars { display: flex; gap: 1.4vh; align-items: flex-end; height: 9vh; margin-top: 7vh; }
+  .bar { width: 1.4vh; height: 9vh; border-radius: 1vh; background: linear-gradient(#5eead4, #a78bfa);
+         transform-origin: bottom; will-change: transform; }
+  .line { position: absolute; left: 12vw; right: 12vw; bottom: 9vh; height: .4vh; border-radius: .4vh;
+          background: rgba(238, 242, 255, .12); overflow: hidden; }
+  .light { position: absolute; top: 0; bottom: 0; width: 22%; border-radius: .4vh; will-change: transform;
+           background: linear-gradient(90deg, rgba(94, 234, 212, 0), #5eead4, #a78bfa, rgba(167, 139, 250, 0)); }
 </style></head>
 <body>
-<h1>ChurchPresenter · testing web pages</h1>
-<div id="clock"></div>
-<div class="ticker">This page moves everywhere at once, so the test sees how smoothly this screen can show a busy web page.</div>
+<div class="glow teal"></div>
+<div class="glow violet"></div>
+<div class="glow amber"></div>
+<main>
+  <div class="brand">ChurchPresenter</div>
+  <h1>Checking this screen</h1>
+  <p>How smoothly does it show web pages? This takes about a minute.</p>
+  <div class="bars"></div>
+</main>
+<div class="line"><div class="light"></div></div>
 <script>
-  const clock = document.getElementById('clock');
-  const dots = [];
-  for (let i = 0; i < 24; i++) {
-    const d = document.createElement('div');
-    d.className = 'dot';
-    d.style.background = `hsl(${i * 15}, 80%, 60%)`;
-    document.body.appendChild(d);
-    dots.push({ el: d, x: Math.random(), y: Math.random(), dx: (Math.random() - .5) / 90, dy: (Math.random() - .5) / 90 });
+  const w = () => innerWidth, h = () => innerHeight;
+  const glows = [...document.querySelectorAll('.glow')].map((el, i) => ({ el, phase: i * 2.1, speed: .13 + i * .04 }));
+  const bars = [];
+  for (let i = 0; i < 11; i++) {
+    const b = document.createElement('div');
+    b.className = 'bar';
+    document.querySelector('.bars').appendChild(b);
+    bars.push(b);
   }
-  function frame(t) {
-    clock.textContent = (t / 1000).toFixed(2);
-    for (const d of dots) {
-      d.x += d.dx; d.y += d.dy;
-      if (d.x < 0 || d.x > .95) d.dx = -d.dx;
-      if (d.y < 0 || d.y > .9) d.dy = -d.dy;
-      d.el.style.transform = `translate(${d.x * 100}vw, ${d.y * 100}vh)`;
+  const light = document.querySelector('.light');
+  function frame(ms) {
+    const t = ms / 1000;
+    for (const g of glows) {
+      const x = w() * (.5 + .38 * Math.sin(t * g.speed + g.phase));
+      const y = h() * (.5 + .34 * Math.cos(t * g.speed * 1.3 + g.phase));
+      g.el.style.transform = `translate(${x}px, ${y}px)`;
     }
+    bars.forEach((b, i) => {
+      const s = .25 + .75 * (.5 + .5 * Math.sin(t * 2.4 - i * .55));
+      b.style.transform = `scaleY(${s})`;
+    });
+    light.style.transform = `translateX(${((t * .28) % 1.3 - .3) * 100 / .22}%)`;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
