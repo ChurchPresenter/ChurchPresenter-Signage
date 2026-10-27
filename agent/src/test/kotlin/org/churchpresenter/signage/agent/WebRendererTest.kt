@@ -123,7 +123,8 @@ class WebRendererTest {
         // Portrait: the page is drawn upright, as tall as the panel is wide.
         val size = screencast["maxWidth"]!!.jsonPrimitive.int to screencast["maxHeight"]!!.jsonPrimitive.int
         assertEquals(1080 to 1920, size)
-        assertEquals(4, screencast["everyNthFrame"]!!.jsonPrimitive.int)
+        // Every frame Chromium draws is sent; the renderer paces them itself.
+        assertEquals(null, screencast["everyNthFrame"])
         fake.frame(byteArrayOf(5, 6), session = 7)
         // Each frame is acknowledged with its own session, or Chromium sends no more.
         val acked = {
@@ -143,15 +144,6 @@ class WebRendererTest {
         // Asked for outright after the load: the screencast alone sends nothing for a page that never changes.
         val picture = methods.indexOf("Page.captureScreenshot")
         assertTrue(picture > methods.indexOf("Page.navigate") && picture < methods.indexOf("Page.startScreencast"))
-        job.cancel()
-    }
-
-    @Test
-    fun smoothMotionLetsTwiceTheFramesThrough() = runBlocking {
-        val fake = FakePage()
-        val job = async { renderer(FakeBrowser(fake)).run(state(page("https://example.org", fps = 30))) }
-        assertEquals(2, withTimeout(WAIT_MS) { fake.screencast.await() }["everyNthFrame"]!!.jsonPrimitive.int)
-        assertEquals(listOf(4, 2, 1, 60), listOf(15, 30, 60, 0).map(WebRenderer::everyNthFrame))
         job.cancel()
     }
 
