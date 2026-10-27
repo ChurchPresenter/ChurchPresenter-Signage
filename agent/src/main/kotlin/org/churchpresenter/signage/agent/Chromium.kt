@@ -145,7 +145,7 @@ class Chromium(
         portFile.deleteIfExists()
         val heapMb = if ((totalMemoryKb ?: 0) < SMALL_MACHINE_KB) SMALL_HEAP_MB else HEAP_MB
         val command = listOf(executable) + args(profile, PAGE_WINDOW_WIDTH, PAGE_WINDOW_HEIGHT, withGpu, heapMb)
-        val started = ProcessBuilder(command)
+        val started = launcher(command)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
@@ -236,6 +236,15 @@ class Chromium(
         private const val SMALL_MACHINE_KB = 2L * 1024 * 1024
         private const val SMALL_HEAP_MB = 512
         private const val HEAP_MB = 1024
+
+        /**
+         * Starts [command] without the login session's D-Bus. Raspberry Pi OS starts Chromium with
+         * `--force-renderer-accessibility`, which on a session bus held each start's first page for
+         * D-Bus's 25 s timeout, past the load timeout; a headless page needs nothing on it.
+         */
+        fun launcher(command: List<String>): ProcessBuilder = ProcessBuilder(command).apply {
+            environment()["DBUS_SESSION_BUS_ADDRESS"] = "disabled:"
+        }
 
         /**
          * Headless, silent, no scroll bars, nothing of a first run; DevTools on a free port. Drawn
