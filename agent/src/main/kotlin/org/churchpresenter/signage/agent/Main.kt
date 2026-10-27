@@ -56,15 +56,7 @@ fun main(args: Array<String>) {
         engine.state,
         launcher,
         MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
-        onExit = {
-            if (exits.exited()) {
-                Diagnostics.report(
-                    "mpv keeps exiting",
-                    mapOf("mpv.version" to launcher.version, "mpv.output" to output),
-                    launcher.recentOutput(),
-                )
-            }
-        },
+        onExit = { mpvExited(exits, launcher, output) },
         webStream = web?.renderer?.let { it::streamUrl } ?: { it },
     )
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -121,6 +113,20 @@ fun main(args: Array<String>) {
 /** The Chromium that draws web pages, said in the log either way. */
 private fun findChromium(): String? = Chromium.find().also { found ->
     Log.info(if (found != null) "Web pages drawn by $found" else "No Chromium found: web pages are not offered")
+}
+
+/**
+ * Reports an mpv that keeps exiting, once it has three times in ten minutes. Not an mpv that is not
+ * there at all (it never told its version): a missing program is the install's, not a defect, and
+ * each failed start is already a warning in the log.
+ */
+private fun mpvExited(exits: ExitWatch, launcher: MpvProcessLauncher, output: String) {
+    if (launcher.version.isEmpty() || !exits.exited()) return
+    Diagnostics.report(
+        "mpv keeps exiting",
+        mapOf("mpv.version" to launcher.version, "mpv.output" to output),
+        launcher.recentOutput(),
+    )
 }
 
 /** What draws web pages, and the test of how smoothly it does. */

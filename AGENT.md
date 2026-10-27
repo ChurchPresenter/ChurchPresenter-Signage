@@ -30,7 +30,8 @@ start; never anything in a Service block. A TV on another HDMI input must never 
 `Diagnostics` sends to Sentry, project **church-projector / church-presenter-signage** (DSN in
 `agent/src/main/resources/sentry.properties`, committed as ChurchPresenter's is). Sent: uncaught
 exceptions, every `Log.error`, "An update was rolled back", and "mpv keeps exiting" (`ExitWatch`:
-three exits or failed starts in ten minutes, then quiet for an hour, with mpv's last output lines).
+three exits or failed starts in ten minutes, then quiet for an hour, with mpv's last output lines;
+never for an mpv that is not installed, which never tells its version).
 `Log.warn` is a breadcrumb. Release builds are `production`; anything else is `development` —
 filter on it.
 - **Consent is the owner's**: `Manifest.diagnostics` carries ChurchPresenter's analytics setting and
