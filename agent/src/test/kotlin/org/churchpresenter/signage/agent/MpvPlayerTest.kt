@@ -108,4 +108,20 @@ class MpvVersionArgsTest {
             MpvProcessLauncher.versionArgs(setOf("--hwdec-software-fallback", "--background-color", "--alpha")),
         )
     }
+
+    @Test
+    fun mpv040IsNotGivenTheAlphaItRemoved() {
+        assertEquals(
+            listOf("--hwdec-software-fallback=600", "--background=color"),
+            MpvProcessLauncher.versionArgs(setOf("--hwdec-software-fallback", "--background-color", "--background")),
+        )
+    }
+
+    @Test
+    fun anUnknownMpvGetsTheOldNames() {
+        assertEquals(
+            listOf("--vd-lavc-software-fallback=600", "--alpha=blend"),
+            MpvProcessLauncher.versionArgs(emptySet()),
+        )
+    }
 }
