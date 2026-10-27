@@ -79,13 +79,14 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
   opens it when it plays, with no download.
   - `stream`: a video or live stream mpv opens itself (a file over http, HLS, RTSP, or a page
     yt-dlp reads, such as YouTube).
-  - `web`: a web page drawn off screen by the player's Chromium, 15 frames a second at most;
+  - `web`: a web page drawn off screen by the player's Chromium, at most `maxFps` frames a second
+    (15 when it is left out; ChurchPresenter sends 30 for a link set to move smoothly);
     `refreshMs`, when set, reloads it that often.
   - A player older than these kinds cannot decode a manifest that has one, so it never gets one
     (`features` above); a playlist made only of links it cannot play shows its idle card.
   - A link that does not load within 15 s, or a stream that stops answering, is set aside for a
     minute: the screen falls back as for any playlist that cannot play, and never shows an error page.
-  - `url` and `refreshMs` are left out of an item that has none, so a manifest without links
+  - `url`, `refreshMs` and `maxFps` are left out of an item that has none, so a manifest without links
     encodes as it did before them.
 - A playlist item's `durationMs` is null for a video that plays to its end, and for a link that
   stays up for as long as its playlist plays.

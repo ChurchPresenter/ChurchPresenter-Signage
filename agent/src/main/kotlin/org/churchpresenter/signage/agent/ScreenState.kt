@@ -44,6 +44,8 @@ data class ScreenItem(
     val url: String? = null,
     /** How often a web page reloads; never when null. */
     val refreshMs: Long? = null,
+    /** At most how many frames a second a web page is drawn at; the protocol's default when null. */
+    val maxFps: Int? = null,
 ) {
     companion object {
         const val DEFAULT_PICTURE_MS = 8_000L

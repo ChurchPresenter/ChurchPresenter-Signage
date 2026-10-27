@@ -76,7 +76,7 @@ data class Playlist(
 /**
  * One entry of a playlist: a file by its hash, or a link by its [url].
  *
- * [url] and [refreshMs] are written only when set, so an item without them encodes exactly as it did
+ * [url], [refreshMs] and [maxFps] are written only when set, so an item without them encodes exactly as it did
  * before links existed and an older manifest keeps its version.
  */
 @OptIn(ExperimentalSerializationApi::class)
@@ -96,9 +96,15 @@ data class PlaylistItem(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val url: String? = null,
     /** How often a [MediaKind.WEB] page reloads; never when null. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val refreshMs: Long? = null,
+    /**
+     * At most how many frames a second a [MediaKind.WEB] page is drawn at; [DEFAULT_WEB_FPS] when
+     * null. More is smoother and costs the player more.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val maxFps: Int? = null,
 ) {
     companion object {
         const val DEFAULT_TRANSITION_MS = 800L
+        const val DEFAULT_WEB_FPS = 15
     }
 }
 

@@ -42,7 +42,7 @@ class PlayableItems(private val files: ContentFiles, private val links: LinkHeal
 
     /** [item] as the screen shows it; null for a file not on disk or a link with no URL. */
     fun screenItem(item: PlaylistItem): ScreenItem? = if (item.kind.isLink) {
-        item.url?.let { ScreenItem(null, item.kind, item.durationMs, it, item.refreshMs) }
+        item.url?.let { ScreenItem(null, item.kind, item.durationMs, it, item.refreshMs, item.maxFps) }
     } else {
         files.path(item.sha256)?.let { ScreenItem(it, item.kind, item.durationMs) }
     }

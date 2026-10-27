@@ -19,6 +19,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.churchpresenter.signage.core.MediaKind
+import org.churchpresenter.signage.core.PlaylistItem
 import org.churchpresenter.signage.core.sha256Hex
 import java.io.IOException
 import java.net.URI
@@ -64,7 +65,7 @@ class WebRenderer(
 
     data class Event(val method: String, val params: JsonObject)
 
-    private data class Wanted(val url: String, val refreshMs: Long?, val width: Int, val height: Int)
+    private data class Wanted(val url: String, val refreshMs: Long?, val width: Int, val height: Int, val fps: Int)
 
     /** The stream mpv plays for the page at [url]. */
     fun streamUrl(url: String): String = "http://127.0.0.1:${server.port}${MjpegServer.PATH_PREFIX}${key(url)}"
@@ -84,7 +85,7 @@ class WebRenderer(
         val upright = state.orientation.clockwiseDegrees % HALF_TURN != 0
         val (width, height) = if (upright) panelHeight to panelWidth else panelWidth to panelHeight
         return state.items.filter { it.kind == MediaKind.WEB && it.url != null }
-            .map { Wanted(it.url.orEmpty(), it.refreshMs, width, height) }
+            .map { Wanted(it.url.orEmpty(), it.refreshMs, width, height, it.maxFps ?: PlaylistItem.DEFAULT_WEB_FPS) }
             .toSet()
     }
 
@@ -166,7 +167,7 @@ class WebRenderer(
         put("quality", JPEG_QUALITY)
         put("maxWidth", wanted.width)
         put("maxHeight", wanted.height)
-        put("everyNthFrame", EVERY_NTH_FRAME)
+        put("everyNthFrame", everyNthFrame(wanted.fps))
     }
 
     private fun ack(params: JsonObject) = buildJsonObject {
@@ -176,8 +177,11 @@ class WebRenderer(
     companion object {
         const val LOAD_TIMEOUT_MS = 15_000L
 
-        /** Chromium draws at 60 frames a second; every fourth reaches the screen, 15 a second. */
-        const val EVERY_NTH_FRAME = 4
+        /** How often Chromium draws a page that moves. */
+        private const val CHROMIUM_FPS = 60
+
+        /** Which of Chromium's frames reach the screen for at most [fps] a second: every fourth for 15. */
+        fun everyNthFrame(fps: Int): Int = (CHROMIUM_FPS / fps.coerceIn(1, CHROMIUM_FPS)).coerceAtLeast(1)
         private const val JPEG_QUALITY = 80
         private const val HALF_TURN = 180
         private const val KEY_CHARS = 16
