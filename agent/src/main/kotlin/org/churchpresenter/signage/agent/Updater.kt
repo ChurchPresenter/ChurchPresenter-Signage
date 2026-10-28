@@ -37,8 +37,32 @@ class Updater(
     private val restart: () -> Unit,
     private val unpack: (archive: Path, into: Path) -> Unit = ::untar,
     private val publicKey: String = ReleaseSigning.PUBLIC_KEY,
+    /** Updates the machine first, where install.sh set that up; null where it did not. */
+    private val system: SystemSetup? = null,
 ) {
     private val busy = Mutex()
+
+    /** Whether Update also updates the machine: install.sh set up its setup service. */
+    val updatesSystem: Boolean get() = system != null
+
+    /**
+     * Updates the machine alone, when there is no newer player: then restarts this one, so everything
+     * it starts (Chromium, mpv) is the new version. One at a time, as [install].
+     */
+    suspend fun updateSystem() {
+        val version = app.currentVersion() ?: AGENT_VERSION
+        val run = system ?: return fail(version, NO_SETUP)
+        if (!busy.tryLock()) return
+        try {
+            report(PlayerMessage.UpdateProgress(version, UpdateState.INSTALLING, SYSTEM_STEP))
+            val problem = run.run()
+            if (problem != null) return fail(version, problem)
+            report(PlayerMessage.UpdateProgress(version, UpdateState.RESTARTING))
+            restart()
+        } finally {
+            busy.unlock()
+        }
+    }
 
     /** Installs [update]; one at a time, and a second request while one runs is dropped. */
     suspend fun install(update: ServerMessage.UpdateAvailable) {
@@ -58,6 +82,12 @@ class Updater(
         if (problem != null) return fail(version, problem)
         val asset = checkNotNull(ReleaseSigning.verify(update.release, update.releaseSignature, publicKey))
             .assets.getValue(platform)
+
+        // The machine first, so the new player starts on what it needs.
+        system?.let { run ->
+            report(PlayerMessage.UpdateProgress(version, UpdateState.INSTALLING, SYSTEM_STEP))
+            run.run()?.let { problem -> return fail(version, problem) }
+        }
 
         val archive = app.download(version)
         lastPercent = 0
@@ -120,6 +150,9 @@ class Updater(
     }
 
     companion object {
+        /** What [PlayerMessage.UpdateProgress.message] says while the machine itself updates. */
+        const val SYSTEM_STEP = "system"
+        private const val NO_SETUP = "this player was installed before system updates; run its install command again"
         private const val PROGRESS_STEP = 10
         private const val PERCENT = 100
         private const val BUFFER = 64 * 1024

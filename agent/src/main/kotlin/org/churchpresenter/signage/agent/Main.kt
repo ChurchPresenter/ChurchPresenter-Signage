@@ -7,9 +7,11 @@ import io.ktor.client.plugins.websocket.WebSockets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import org.churchpresenter.signage.core.Platform
 import java.io.IOException
 import java.nio.file.Path
@@ -37,7 +39,9 @@ fun main(args: Array<String>) {
     Log.info("Signage agent $AGENT_VERSION, player ${store.identity().playerId}, data in ${config.dataDir}")
 
     val chromium = findChromium()
-    val engine = PlayerEngine(store, if (config.cec) CecCtl() else NoCec, web = chromium != null)
+    val kioskPrograms = findKioskPrograms(chromium)
+    val cec: Cec = if (config.cec) CecCtl() else NoCec
+    val engine = PlayerEngine(store, cec, web = chromium != null, interactive = kioskPrograms != null)
     val client = HttpClient(CIO) {
         install(WebSockets) { pingIntervalMillis = PING_MS }
         install(HttpTimeout) { connectTimeoutMillis = CONNECT_TIMEOUT_MS }
@@ -54,13 +58,16 @@ fun main(args: Array<String>) {
     val output = config.mpvArgs.firstOrNull { it.startsWith("--vo=") }?.removePrefix("--vo=") ?: "default"
     startDiagnostics(store, platform, output, app)
     val exits = ExitWatch()
+    val screen = Mutex()
     val player = MpvPlayer(
         engine.state,
         launcher,
         MpvPlayer.writeBlank(config.dataDir.resolve("blank.png")),
         onExit = { mpvExited(exits, launcher, output) },
         webStream = web?.renderer?.let { it::streamUrl } ?: { it },
+        screen = screen,
     )
+    val kiosk = kioskPrograms?.let { (cage, browser) -> KioskParts(browser, cage, client, engine, store, screen) }
     val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var session: PlayerSession
     val updater = Updater(
@@ -77,6 +84,7 @@ fun main(args: Array<String>) {
             Thread.sleep(RESTART_GRACE_MS)
             exitProcess(0)
         },
+        system = SystemdSetup.find(),
     )
     session = PlayerSession(
         store = store,
@@ -89,12 +97,15 @@ fun main(args: Array<String>) {
                 ManifestSync(store, HttpContentSource(client, "http://$at", token)).sync()
             }
         },
-        previews = PreviewMaker(player::screenshot, config.dataDir),
+        previews = PreviewMaker(previewShot(kiosk, player), config.dataDir),
         updater = updater,
         app = app,
         background = background,
         web = web != null,
         webTest = web?.test,
+        interactive = kiosk != null,
+        power = SystemdPower.find(),
+        tv = tvSwitch(cec),
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
@@ -104,6 +115,7 @@ fun main(args: Array<String>) {
         launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
         launch { player.run() }
         web?.let { launch { it.renderer.run(engine.state) } }
+        kiosk?.let { launch { it.run() } }
         launch {
             // A new version that has run this long without crashing counts as healthy even unpaired.
             delay(HEALTHY_AFTER_MS)
@@ -130,6 +142,61 @@ private fun mpvExited(exits: ExitWatch, launcher: MpvProcessLauncher, output: St
         launcher.recentOutput(),
     )
 }
+
+/** Turns the TV on or to standby when ChurchPresenter asks; null without CEC. */
+private fun tvSwitch(cec: Cec): ((Boolean) -> Boolean)? =
+    if (cec == NoCec) null else { on -> cec.send(if (on) CecCommand.POWER_ON else CecCommand.STANDBY) }
+
+/** cage and the Chromium it shows interactive pages with, said in the log either way; null without both. */
+private fun findKioskPrograms(chromium: String?): Pair<String, String>? {
+    val cage = chromium?.let { CageKiosk.find("cage") }
+    Log.info(if (cage != null) "Interactive pages shown by $cage" else "No cage or Chromium: no interactive pages")
+    return cage?.let { it to chromium }
+}
+
+/**
+ * The kiosk browser for interactive pages, and the screen's touches where libinput-tools is
+ * installed: the switch gesture and the pages' idle time.
+ */
+private class KioskParts(
+    chromium: String,
+    cage: String,
+    client: HttpClient,
+    engine: PlayerEngine,
+    store: PlayerStore,
+    screen: Mutex,
+) {
+    private val control = KioskControl(store, engine, engine.pinPrompt)
+    private val session = KioskSession(
+        state = engine.state,
+        screen = screen,
+        browser = CageKiosk(cage, chromium, client),
+        profileDir = CageKiosk.profileDir(),
+        onFailed = { url -> engine.linkFailed(listOf(url)) },
+        pins = control,
+    )
+    private val touch = CageKiosk.find("libinput")?.let { libinput ->
+        TouchInput(
+            libinput,
+            orientation = { engine.state.value.orientation },
+            onActivity = session::touched,
+            onGesture = control::gesture,
+        )
+    }
+
+    /** What the kiosk shows, for the preview; null while it does not have the screen. */
+    suspend fun screenshot(file: Path): Boolean? = session.screenshot(file)
+
+    suspend fun run() = coroutineScope {
+        if (touch == null) Log.info("libinput-tools is not installed: no switch gesture on the screen")
+        launch { session.run() }
+        touch?.let { launch { it.run() } }
+    }
+}
+
+/** The preview's picture: from the kiosk browser while it has the screen, from mpv otherwise. */
+private fun previewShot(kiosk: KioskParts?, player: MpvPlayer): suspend (Path) -> Boolean =
+    { file -> kiosk?.screenshot(file) ?: player.screenshot(file) }
 
 /** What draws web pages, and the test of how smoothly it does. */
 private class WebParts(val renderer: WebRenderer, val test: WebTest)

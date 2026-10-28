@@ -11,6 +11,11 @@
 #
 # Options (after `bash -s --` when piped):  --address host:port   use this ChurchPresenter, skip discovery
 #                                           --no-reboot           do not reboot at the end
+#                                           --system-only         update the system, not the player
+#
+# --system-only is what Update in ChurchPresenter's Signage tab runs, through the root-owned
+# churchpresenter-signage-setup service: it updates every package (Chromium, mpv and the rest) and
+# this machine's settings for the player, and leaves the player, its pairing and its content alone.
 set -euo pipefail
 
 REPO="ChurchPresenter/ChurchPresenter-Signage"
@@ -25,10 +30,12 @@ OLD_KIOSK_UNIT=churchpresenter-signage-kiosk
 address=""
 address_given=0
 reboot=1
+system_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --address) address="${2:-}"; address_given=1; shift 2 ;;
     --no-reboot) reboot=0; shift ;;
+    --system-only) system_only=1; reboot=0; address_given=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -69,13 +76,126 @@ fi
 # Links: yt-dlp lets mpv open YouTube and similar pages as streams; Chromium draws web pages. Only
 # Chromium's own package: where apt offers it only as a snap (Ubuntu), no web pages, unless a
 # Chromium or Chrome is already installed.
-for extra in yt-dlp chromium; do
+# cage shows an interactive page (an event sign-up on a touchscreen) in a visible Chromium,
+# libinput-tools reads the corner gesture, wlr-randr turns that page for a rotated screen.
+# polkitd lets the player restart and shut down the machine when ChurchPresenter asks (rule below).
+for extra in yt-dlp chromium cage libinput-tools wlr-randr polkitd; do
   has_package "$extra" && packages="$packages $extra"
 done
 # shellcheck disable=SC2086
 apt-get install -y -q --no-install-recommends $packages
 mpv_path="$(command -v mpv || true)"
 [ -n "$mpv_path" ] || die "mpv did not install"
+
+say "Setting Chromium never to keep what people type"
+# An interactive page runs in a private window whose profile is deleted after each person; this
+# policy also keeps Chromium from offering to save a password, an address or a card, from signing
+# in, and from opening its own pages, downloads or printing. DevTools stays allowed: the agent drives
+# Chromium through it.
+policy='{
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "SavingBrowserHistoryDisabled": true,
+  "SearchSuggestEnabled": false,
+  "TranslateEnabled": false,
+  "DownloadRestrictions": 3,
+  "PrintingEnabled": false,
+  "URLBlocklist": ["file://*", "chrome://*", "chrome-extension://*", "view-source:*"]
+}'
+for dir in /etc/chromium/policies/managed /etc/chromium-browser/policies/managed /etc/opt/chrome/policies/managed; do
+  install -d -m 0755 "$dir"
+  printf '%s\n' "$policy" > "$dir/churchpresenter-kiosk.json"
+done
+
+say "Letting the player restart and shut down this machine"
+# Only these two, only for the player's user, never anything else as root: ChurchPresenter's Signage
+# tab asks for them, and the player runs systemctl reboot or poweroff itself.
+if [ -d /etc/polkit-1 ]; then
+  install -d -m 0755 /etc/polkit-1/rules.d
+  cat > /etc/polkit-1/rules.d/50-churchpresenter-signage.rules <<EOF
+polkit.addRule(function (action, subject) {
+  var power = ["org.freedesktop.login1.reboot", "org.freedesktop.login1.reboot-multiple-sessions",
+               "org.freedesktop.login1.power-off", "org.freedesktop.login1.power-off-multiple-sessions"];
+  if (subject.user == "$USER_NAME" && power.indexOf(action.id) >= 0) return polkit.Result.YES;
+});
+EOF
+else
+  echo "polkit is not installed: restart, shut down and update from ChurchPresenter will not work here"
+fi
+
+say "Letting ChurchPresenter's Update update this machine"
+# Update in the Signage tab starts churchpresenter-signage-setup.service, which runs as root. The
+# player may only start it (the polkit rule below); it can hand it nothing. The service fetches this
+# script from the latest release itself, checks it against the release index signed with the key
+# below, and runs it with --system-only.
+install -d -m 0755 /etc/churchpresenter-signage
+cat > /etc/churchpresenter-signage/release-key.pem <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA/e/slJSb6siWZ4/nj/yRhgo80F8ZdTyTxBo9VDWf7aA=
+-----END PUBLIC KEY-----
+EOF
+# Quoted: written as it stands. The release, the data folder and the key are fixed for this player.
+cat > /usr/local/sbin/churchpresenter-signage-setup.new <<'EOF'
+#!/bin/sh
+# Updates this machine for the ChurchPresenter signage player: the latest release's install.sh, run
+# with --system-only once it matches the signed release index. Its output is in
+# /var/log/churchpresenter-signage-setup.log, which the player reads to say how it went.
+set -eu
+base="https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/latest/download"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+exec > /var/log/churchpresenter-signage-setup.log 2>&1
+curl -fsSL -o "$work/index.json" "$base/signage-release.json"
+curl -fsSL -o "$work/index.sig" "$base/signage-release.json.sig"
+base64 -d "$work/index.sig" > "$work/index.bin"
+openssl pkeyutl -verify -pubin -inkey /etc/churchpresenter-signage/release-key.pem -rawin \
+  -in "$work/index.json" -sigfile "$work/index.bin" >/dev/null || { echo "The release index is not signed"; exit 1; }
+hash="$(sed -n '/"setup"/,/}/s/.*"sha256": *"\([0-9a-f]\{64\}\)".*/\1/p' "$work/index.json")"
+[ -n "$hash" ] || { echo "The release has no setup script"; exit 1; }
+curl -fsSL -o "$work/install.sh" "$base/install.sh"
+echo "$hash  $work/install.sh" | sha256sum -c --quiet - || { echo "install.sh does not match the release"; exit 1; }
+# exec: this file is replaced while the update runs, and nothing after this line may be read from it.
+exec bash "$work/install.sh" --system-only
+EOF
+# Into place by rename: an update rewrites this file while the old one is still running.
+chmod 0755 /usr/local/sbin/churchpresenter-signage-setup.new
+mv -f /usr/local/sbin/churchpresenter-signage-setup.new /usr/local/sbin/churchpresenter-signage-setup
+cat > /etc/systemd/system/churchpresenter-signage-setup.service <<EOF
+[Unit]
+Description=Update this machine for the ChurchPresenter signage player
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/churchpresenter-signage-setup
+TimeoutStartSec=45min
+EOF
+if [ -d /etc/polkit-1/rules.d ]; then
+  cat > /etc/polkit-1/rules.d/51-churchpresenter-signage-setup.rules <<EOF
+polkit.addRule(function (action, subject) {
+  if (subject.user == "$USER_NAME" && action.id == "org.freedesktop.systemd1.manage-units" &&
+      action.lookup("unit") == "churchpresenter-signage-setup.service" && action.lookup("verb") == "start") {
+    return polkit.Result.YES;
+  }
+});
+EOF
+fi
+systemctl daemon-reload
+
+if [ "$system_only" -eq 1 ]; then
+  # The player's own packages (Chromium, mpv and the rest) were brought up to date above, and failed
+  # the update if they could not be. Everything else is best effort: a machine's own pins or held
+  # packages must not stop the player's update.
+  say "Updating every other package"
+  apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade ||
+    echo "Warning: some other packages could not be updated; the player's own are up to date"
+  say "Updated"
+  exit 0
+fi
 
 say "Downloading the signage player ($platform)"
 work="$(mktemp -d)"
@@ -162,7 +282,7 @@ Conflicts=getty@tty1.service
 
 [Service]
 User=$USER_NAME
-SupplementaryGroups=video render
+SupplementaryGroups=video render input
 PAMName=churchpresenter-signage
 TTYPath=/dev/tty1
 TTYReset=yes

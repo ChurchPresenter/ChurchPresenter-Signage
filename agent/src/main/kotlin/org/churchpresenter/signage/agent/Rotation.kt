@@ -61,8 +61,11 @@ class Rotation(private val items: PlayableItems) {
         /** Shown one item at a time: it has a link and more than that. */
         fun isRotation(playlist: Playlist): Boolean = playlist.items.size > 1 && playlist.items.any { it.kind.isLink }
 
-        /** How long [item] stays as a step; null for a video that plays to its end. */
-        fun stepMs(item: PlaylistItem): Long? = item.durationMs ?: when (item.kind) {
+        /**
+         * How long [item] stays as a step; null for a video that plays to its end, and for an
+         * interactive page, which stays for as long as its playlist plays.
+         */
+        fun stepMs(item: PlaylistItem): Long? = if (item.interactive) null else item.durationMs ?: when (item.kind) {
             MediaKind.VIDEO -> null
             MediaKind.IMAGE -> ScreenItem.DEFAULT_PICTURE_MS
             MediaKind.STREAM, MediaKind.WEB -> DEFAULT_LINK_STEP_MS

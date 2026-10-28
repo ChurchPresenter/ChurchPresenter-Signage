@@ -18,9 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -166,8 +164,8 @@ class Chromium(
         throw IOException("Chromium did not open DevTools")
     }
 
-    /** One page's DevTools socket: calls answered by id, and everything else as events. */
-    private class DevToolsPage(private val socket: DefaultClientWebSocketSession) : WebRenderer.Page {
+    /** One page's DevTools socket: calls answered by id, and everything else as events. Also the kiosk's. */
+    internal class DevToolsPage(private val socket: DefaultClientWebSocketSession) : WebRenderer.Page {
         private val ids = AtomicInteger(1)
         private val waiting = ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>()
         override val events = Channel<WebRenderer.Event>(Channel.UNLIMITED)
@@ -329,7 +327,5 @@ suspend fun HttpClient.answers(url: String, timeoutMs: Long): Boolean {
         false
     }
 }
-
-private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 
 private fun JsonObject.params(): JsonObject = this["params"] as? JsonObject ?: JsonObject(emptyMap())

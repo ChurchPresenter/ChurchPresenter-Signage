@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
+import org.churchpresenter.signage.core.MediaKind
 import java.io.IOException
 import java.nio.file.Path
 import kotlin.test.Test
@@ -81,6 +82,23 @@ class MpvPlayerTest {
         assertEquals(0, exits, "a refresh is not an exit")
         assertTrue(sessions[0].closed)
         assertEquals(1, sessions[0].sent.size)
+    }
+
+    @Test
+    fun aTouchPageTakesTheScreenFromMpvAndGivesItBack() = runTest {
+        startPlayer()
+        val touch = ScreenItem(null, MediaKind.WEB, null, "https://signup.example.org", interactive = true)
+        state.value = ScreenState(ScreenMode.PLAYLIST, "signup", listOf(touch))
+        runCurrent()
+        assertTrue(sessions.single().closed, "mpv closes for the kiosk browser")
+        assertEquals(1, sessions.single().sent.size, "the touch page is never sent to mpv")
+        assertEquals(0, exits, "closing for the kiosk is not an exit")
+        state.value = state.value.copy(pinPrompt = true, items = emptyList())
+        runCurrent()
+        assertEquals(1, sessions.size, "the PIN pad is the kiosk's too")
+        state.value = ScreenState(ScreenMode.IDLE)
+        runCurrent()
+        assertEquals(2, sessions.size, "mpv starts again once the screen is its own")
     }
 
     @Test
