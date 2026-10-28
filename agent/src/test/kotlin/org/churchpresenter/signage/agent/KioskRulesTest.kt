@@ -65,10 +65,12 @@ class KioskRulesTest {
 
     @Test
     fun theKioskBrowserIsPrivateAndForgetful() {
-        val command = KioskCommand.command("/usr/bin/cage", "/usr/bin/chromium", Path("/run/user/1/kiosk"))
+        val profile = Path("/run/user/1/kiosk")
+        val command = KioskCommand.command("/usr/bin/cage", "/usr/bin/chromium", profile)
         assertEquals(listOf("/usr/bin/cage", "-d", "--", "/usr/bin/chromium"), command.take(4))
+        // The profile as the system writes its path: Windows turns the slashes round.
         listOf(
-            "--kiosk", "--incognito", "--user-data-dir=/run/user/1/kiosk", "--password-store=basic",
+            "--kiosk", "--incognito", "--user-data-dir=$profile", "--password-store=basic",
             "--disable-crash-reporter", "--disable-breakpad", "--remote-debugging-address=127.0.0.1",
         ).forEach { assertTrue(it in command, it) }
         assertEquals("about:blank", command.last())

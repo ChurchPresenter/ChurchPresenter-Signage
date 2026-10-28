@@ -2,7 +2,8 @@ package org.churchpresenter.signage.agent
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -49,9 +50,13 @@ class KioskSessionTest {
     @Volatile
     private var nowMs = 0L
 
+    /**
+     * Stops the session and waits for it, so its own last wipe is over before the folder goes: on
+     * Windows a file still open cannot be deleted.
+     */
     @AfterTest
     fun cleanUp() {
-        scope.cancel()
+        runBlocking { scope.coroutineContext.job.cancelAndJoin() }
         root.deleteRecursively()
     }
 
