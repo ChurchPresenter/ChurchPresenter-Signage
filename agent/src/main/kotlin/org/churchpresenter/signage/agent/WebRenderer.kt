@@ -107,7 +107,8 @@ class WebRenderer(
     private fun wanted(state: ScreenState): Set<Wanted> {
         val upright = state.orientation.clockwiseDegrees % HALF_TURN != 0
         val (width, height) = if (upright) panelHeight to panelWidth else panelWidth to panelHeight
-        return state.items.filter { it.kind == MediaKind.WEB && it.url != null }
+        // An interactive page is shown by the kiosk browser, not drawn here.
+        return state.items.filter { it.kind == MediaKind.WEB && it.url != null && !it.interactive }
             .map { Wanted(it.url.orEmpty(), it.refreshMs, width, height, it.maxFps ?: PlaylistItem.DEFAULT_WEB_FPS) }
             .toSet()
     }

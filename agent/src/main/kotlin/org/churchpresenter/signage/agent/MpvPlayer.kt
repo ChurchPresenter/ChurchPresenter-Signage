@@ -6,9 +6,12 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -16,12 +19,14 @@ import java.io.Closeable
 import java.io.IOException
 import java.awt.image.BufferedImage
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
 import kotlin.io.path.deleteIfExists
 
 /**
  * Keeps mpv on the screen showing [state]: starts it, sends it each change, and starts it again when
  * it exits or a refresh asks for it. A fresh mpv is sent the whole state; after that only the changes.
+ * While the state wants the kiosk browser, mpv is closed and leaves the screen to it ([screen]).
  */
 class MpvPlayer(
     private val state: StateFlow<ScreenState>,
@@ -33,6 +38,8 @@ class MpvPlayer(
     private val restartDelayMs: Long = RESTART_DELAY_MS,
     /** The local stream a web page is drawn into, from its URL; see [WebRenderer.streamUrl]. */
     private val webStream: (String) -> String = { it },
+    /** Held while mpv runs; [KioskSession] takes it for the kiosk browser, so only one has the screen. */
+    private val screen: Mutex = Mutex(),
 ) {
     /** A running mpv the player can drive. */
     interface Session : Closeable {
@@ -59,8 +66,11 @@ class MpvPlayer(
     /** Runs until cancelled. */
     suspend fun run() {
         while (true) {
+            state.first { !it.kioskWanted }
             try {
-                launcher.start().use { session -> driveAsCurrent(session) }
+                screen.withLock {
+                    if (!state.value.kioskWanted) launcher.start().use { session -> driveAsCurrent(session) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -87,7 +97,7 @@ class MpvPlayer(
         var shown: ScreenState? = null
         val exited = async { session.awaitExit() }
         val restartAsked = async {
-            state.takeWhile { it.restartToken == token }.collect { next ->
+            state.takeWhile { it.restartToken == token && !it.kioskWanted }.collect { next ->
                 session.send(MpvScene.commands(shown, next, blank, webStream))
                 shown = next
             }
@@ -97,7 +107,10 @@ class MpvPlayer(
                 Log.warn("mpv exited; starting it again")
                 onExit()
             }
-            restartAsked.onAwait { Log.info("Restarting mpv on request") }
+            restartAsked.onAwait {
+                if (state.value.kioskWanted) Log.info("Closing mpv for the interactive page")
+                else Log.info("Restarting mpv on request")
+            }
         }
         coroutineContext.cancelChildren()
     }
@@ -223,13 +236,16 @@ class MpvProcessLauncher(
             process.onExit().await()
         }
 
+        /** Ends mpv and waits for it, so the screen is free for whatever takes it next (the kiosk browser). */
         override fun close() {
             ipc.close()
             process.destroy()
+            if (!process.waitFor(EXIT_WAIT_MS, TimeUnit.MILLISECONDS)) process.destroyForcibly()
         }
     }
 
     companion object {
+        private const val EXIT_WAIT_MS = 3_000L
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val CONNECT_POLL_MS = 100L
         private const val KEPT_OUTPUT_LINES = 30

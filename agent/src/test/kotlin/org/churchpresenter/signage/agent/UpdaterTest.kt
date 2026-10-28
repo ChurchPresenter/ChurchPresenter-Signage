@@ -47,7 +47,7 @@ class UpdaterTest {
     @AfterTest
     fun cleanUp() = root.deleteRecursively()
 
-    private fun updater() = Updater(
+    private fun updater(system: SystemSetup? = null) = Updater(
         app = app,
         platform = Platform.LINUX_X64,
         fetch = { _, consume -> fetched = true; consume(served.inputStream()) },
@@ -56,6 +56,7 @@ class UpdaterTest {
         // Stands in for tar: a bundle unpacks to one top folder.
         unpack = { _, into -> into.resolve("churchpresenter-signage/bin").createDirectories() },
         publicKey = Base64.getEncoder().encodeToString(keys.public.encoded),
+        system = system,
     )
 
     private fun index(sha256: String = sha256Hex(build), size: Long = build.size.toLong(), version: String = "0.2.0") =
@@ -158,5 +159,47 @@ class UpdaterTest {
         assertEquals("0.2.0", app.rolledBackVersion(), "looking does not take it")
         assertEquals("0.2.0", app.takeRolledBack())
         assertNull(app.takeRolledBack())
+    }
+
+    @Test
+    fun theMachineIsUpdatedBeforeThePlayer() = runTest {
+        linuxOnly()
+        val steps = mutableListOf<String>()
+        updater(system = SystemSetup { steps += "system"; null }).install(offer())
+        assertEquals(listOf("system"), steps)
+        val first = reports.first()
+        assertEquals(UpdateState.INSTALLING to Updater.SYSTEM_STEP, first.state to first.message)
+        assertEquals(UpdateState.DOWNLOADING, reports[1].state)
+        assertTrue(restarted)
+    }
+
+    @Test
+    fun aSystemUpdateThatFailsStopsThePlayersToo() = runTest {
+        updater(system = SystemSetup { "the release has no setup script" }).install(offer())
+        assertEquals(UpdateState.FAILED, reports.last().state)
+        assertEquals("the release has no setup script", reports.last().message)
+        assertFalse(fetched)
+        assertFalse(restarted)
+    }
+
+    @Test
+    fun theMachineAloneIsUpdatedThenThePlayerRestarts() = runTest {
+        val updater = updater(system = SystemSetup { null })
+        assertTrue(updater.updatesSystem)
+        updater.updateSystem()
+        assertEquals(listOf(UpdateState.INSTALLING, UpdateState.RESTARTING), reports.map { it.state })
+        assertEquals("0.1.0", reports.first().version)
+        assertTrue(restarted)
+    }
+
+    @Test
+    fun withoutTheSetupServiceTheMachineCannotBeUpdated() = runTest {
+        val updater = updater()
+        assertFalse(updater.updatesSystem)
+        updater.updateSystem()
+        assertTrue("install command" in reports.single().message.orEmpty())
+        updater(system = SystemSetup { "apt could not reach the internet" }).updateSystem()
+        assertEquals("apt could not reach the internet", reports.last().message)
+        assertFalse(restarted)
     }
 }

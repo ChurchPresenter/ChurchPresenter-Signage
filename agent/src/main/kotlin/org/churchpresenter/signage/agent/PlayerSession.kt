@@ -3,6 +3,7 @@ package org.churchpresenter.signage.agent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.churchpresenter.signage.core.Features
 import org.churchpresenter.signage.core.PROTOCOL_VERSION
@@ -40,6 +41,12 @@ class PlayerSession(
     private val webTest: WebTest? = null,
     /** The machine's health, sent with each status. */
     private val health: HealthReader = HealthReader(),
+    /** Whether this player shows interactive pages: it found a Chromium and cage. */
+    private val interactive: Boolean = false,
+    /** Restarts and shuts down the machine; null where the player cannot. */
+    private val power: Power? = null,
+    /** Turns the TV on (true) or to standby now; null where the player has no CEC. */
+    private val tv: ((Boolean) -> Boolean)? = null,
 ) {
     private val testing = AtomicBoolean(false)
 
@@ -52,6 +59,10 @@ class PlayerSession(
         Features.STREAM,
         Features.ROTATION,
         Features.WEB.takeIf { web },
+        Features.INTERACTIVE.takeIf { interactive },
+        Features.POWER.takeIf { power != null && background != null },
+        Features.TV.takeIf { tv != null && background != null },
+        Features.SYSTEM_UPDATE.takeIf { updater?.updatesSystem == true && background != null },
         Features.WEB_TEST.takeIf { webTest != null && background != null },
         Features.PREVIEW.takeIf { previews != null },
         Features.UPDATE.takeIf { updater != null && app?.canUpdate() == true },
@@ -143,6 +154,10 @@ class PlayerSession(
             syncAndReload()
             SessionNext.STAY
         }
+        is ServerMessage.Power, is ServerMessage.Tv, ServerMessage.UpdateSystem -> {
+            machine(message)
+            SessionNext.STAY
+        }
         is ServerMessage.PreviewRequest -> {
             previews?.make(message.maxWidth)?.let { outgoing.trySend(it) }
             SessionNext.STAY
@@ -173,6 +188,27 @@ class PlayerSession(
         }
     }
 
+    /** What ChurchPresenter asks of the machine itself: power, the TV, a system update. */
+    private fun machine(message: ServerMessage) {
+        val scope = background ?: return
+        when (message) {
+            is ServerMessage.Power -> power?.let { run ->
+                Log.info("ChurchPresenter asked this screen to ${message.action.name.lowercase().replace('_', ' ')}")
+                // Off the connection, a moment later, so the log line and the socket close cleanly.
+                scope.launch {
+                    delay(POWER_DELAY_MS)
+                    run.run(message.action)
+                }
+            }
+            is ServerMessage.Tv -> tv?.let { send ->
+                Log.info("ChurchPresenter turned the TV ${if (message.on) "on" else "off"}")
+                scope.launch { send(message.on) }
+            }
+            ServerMessage.UpdateSystem -> updater?.let { run -> scope.launch { run.updateSystem() } }
+            else -> Unit
+        }
+    }
+
     /** The server refused the token: the screen was revoked while this player was away. */
     fun onUnauthorized() = release()
 
@@ -191,6 +227,7 @@ class PlayerSession(
             memoryPercent = now.memoryPercent,
             temperatureC = now.temperatureC,
             uptimeSeconds = now.uptimeSeconds,
+            interactive = state.kioskWanted,
         )
     }
 
@@ -228,6 +265,7 @@ class PlayerSession(
 
     private companion object {
         const val OUTGOING_CAPACITY = 16
+        const val POWER_DELAY_MS = 1_000L
         const val PAIRING_CODE_RANGE = 10_000
         const val PAIRING_CODE_DIGITS = 4
         const val SHORT_HASH = 8

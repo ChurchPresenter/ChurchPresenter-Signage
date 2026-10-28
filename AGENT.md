@@ -12,7 +12,7 @@ The plan behind it: `~/Desktop/lobby-signage/PLAN.md` (local, not in the repo).
 | Module | What it is |
 |---|---|
 | `:core` | The wire format and the rules: manifest, schedule, overrides, messages, and `decide()`. Pure Kotlin/JVM, no I/O beyond hashing |
-| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), links (`LinkHealth`; web pages by `WebRenderer` in a headless `Chromium`, handed to mpv as MJPEG by `MjpegServer`, each page's picture asked for outright after it loads since the screencast sends none for a page that never changes; Chromium restarted by `MemoryWatch` over a limit sized to the machine's RAM, measured as PSS; the GPU on ARM until it fails once, `web-gpu-off`), rotations (`Rotation`: a playlist with a link shown one item at a time by the engine), the machine's health for the status (`SystemHealth`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
+| `:agent` | The player: local store and safe swap (`PlayerStore`, `ContentFiles`), sync (`ManifestSync`), the once-a-second decision loop (`PlayerEngine`), mpv on the screen (`MpvPlayer`, `MpvScene`, `OsdText`, `MpvIpc`), links (`LinkHealth`; web pages by `WebRenderer` in a headless `Chromium`, handed to mpv as MJPEG by `MjpegServer`, each page's picture asked for outright after it loads since the screencast sends none for a page that never changes; Chromium restarted by `MemoryWatch` over a limit sized to the machine's RAM, measured as PSS; the GPU on ARM until it fails once, `web-gpu-off`), rotations (`Rotation`: a playlist with a link shown one item at a time by the engine), the machine (`Power`, `SystemSetup`, and the TV through `Cec`), interactive pages (`KioskSession`: a visible Chromium in cage (`CageKiosk`) that takes the screen from mpv through a shared lock, on a profile in RAM deleted at each idle reset, with its own keyboard, countdown and PIN pad from `kiosk-page.js`, driven through `KioskPage`; `TouchInput` reads touches and the corner gesture from `libinput debug-events`; `KioskControl` switches on that gesture, behind the screen's PIN), the machine's health for the status (`SystemHealth`), previews (`PreviewMaker`), updates (`Updater`, `AppFolder`), CEC (`TvPowerPolicy`, `CecCtl`), the connection to ChurchPresenter (`ServerConnection`, `PlayerSession`) |
 
 The agent's logic takes its clock, CEC and content source as parameters; tests use fakes
 (`Fixtures.kt`) and never a real mpv; `MpvIpcTest` talks to a Unix socket of its own, `MpvPlayerTest` to a
@@ -68,6 +68,25 @@ filter on it.
   secret `SIGNAGE_SIGNING_KEY` (an Ed25519 private key, PKCS#8 PEM); a release fails without it. The
   public key is `ReleaseSigning.PUBLIC_KEY` in `:core`, and ChurchPresenter's copy of core must
   carry the same one. Changing the key means every installed player must be reinstalled.
+- **Update in ChurchPresenter updates the machine too.** `install.sh` installs the root-owned
+  `churchpresenter-signage-setup` service and polkit rules that let the player's user start it (and
+  `systemctl reboot`/`poweroff`, for ChurchPresenter's Restart and Shut down) and nothing else. The
+  service fetches the latest release's `install.sh`, checks it against the signed index's `setup`
+  entry with the key in `/etc/churchpresenter-signage/release-key.pem` (the same as
+  `ReleaseSigning.PUBLIC_KEY`; `MachineCommandsTest` holds them together), and runs it with
+  `--system-only`, which updates the packages and settings and never the player. The player only
+  starts it (`SystemdSetup`); it hands it nothing. `--system-only` must stay additive: it installs and
+  sets up, never removes.
+- The TV on and off on request (`tv`) is one CEC command, outside `TvPowerPolicy`: the schedule's next
+  change sets the TV again.
+- `install.sh` writes a managed Chromium policy (`/etc/chromium/policies/managed/churchpresenter-kiosk.json`
+  and the Chromium-browser and Chrome copies) that turns off saving passwords, addresses and cards,
+  sign-in, history and downloads. It must never turn DevTools off: the agent drives Chromium through
+  it.
+- **An interactive page keeps nothing of anyone's on the player.** Its preview is taken from the
+  kiosk browser and shows the page live, typing included: the church asked to see that it works, and
+  the preview goes only to the owning ChurchPresenter, never to disk beyond the moment it is made. No
+  `Log` line names what was typed or which page someone went to.
 - Not yet: the read-only system disk.
 
 ## The wire format is a contract

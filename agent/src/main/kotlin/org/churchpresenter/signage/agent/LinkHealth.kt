@@ -33,12 +33,21 @@ class LinkHealth(private val retryAfter: Duration = RETRY_AFTER) {
 }
 
 /** Which playlist items can play now on this player, and each as the screen shows it. */
-class PlayableItems(private val files: ContentFiles, private val links: LinkHealth, private val web: Boolean) {
-    /** A file that is on disk; a link with its URL that has not failed lately, a web page only with a Chromium. */
+class PlayableItems(
+    private val files: ContentFiles,
+    private val links: LinkHealth,
+    private val web: Boolean,
+    /** Whether this player can show an interactive page: it has a Chromium and cage. */
+    private val interactive: Boolean = false,
+) {
+    /**
+     * A file that is on disk; a link with its URL that has not failed lately, a web page only with a
+     * Chromium, an interactive one only with the kiosk browser.
+     */
     fun canPlay(item: PlaylistItem, now: Instant): Boolean = when (item.kind) {
         MediaKind.IMAGE, MediaKind.VIDEO -> files.has(item.sha256)
         MediaKind.STREAM -> item.url?.let { links.isUp(it, now) } == true
-        MediaKind.WEB -> web && item.url?.let { links.isUp(it, now) } == true
+        MediaKind.WEB -> (if (item.interactive) interactive else web) && item.url?.let { links.isUp(it, now) } == true
     }
 
     /**
@@ -53,7 +62,14 @@ class PlayableItems(private val files: ContentFiles, private val links: LinkHeal
 
     /** [item] as the screen shows it; null for a file not on disk or a link with no URL. */
     fun screenItem(item: PlaylistItem): ScreenItem? = if (item.kind.isLink) {
-        item.url?.let { ScreenItem(null, item.kind, item.durationMs, it, item.refreshMs, item.maxFps) }
+        item.url?.let { url ->
+            ScreenItem(
+                null, item.kind, item.durationMs, url, item.refreshMs, item.maxFps,
+                interactive = item.interactive && item.kind == MediaKind.WEB,
+                idleResetMs = item.idleResetMs ?: PlaylistItem.DEFAULT_IDLE_RESET_MS,
+                allowedHosts = item.allowedHosts,
+            )
+        }
     } else {
         files.path(item.sha256)?.let { ScreenItem(it, item.kind, item.durationMs) }
     }

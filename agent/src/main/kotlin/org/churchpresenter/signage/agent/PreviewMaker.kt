@@ -17,8 +17,8 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 
 /**
- * Makes the Signage tab's preview: a screenshot of what mpv draws ([shoot] writes it to a file),
- * scaled to the width asked for and saved again as a small JPEG, a few tens of kilobytes.
+ * Makes the Signage tab's preview: a screenshot of what mpv or the kiosk browser draws ([shoot]
+ * writes it to a file), scaled to the width asked for and saved again as a small JPEG, a few tens of kilobytes.
  */
 class PreviewMaker(
     private val shoot: suspend (Path) -> Boolean,

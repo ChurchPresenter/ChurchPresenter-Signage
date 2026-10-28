@@ -187,7 +187,10 @@ jobs:
                   if name.startswith(f"ChurchPresenter-Signage-{version}-{suffix}."):
                       data = open(os.path.join("dist", name), "rb").read()
                       assets[platform] = {"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-          index = {"version": version, "protocolMin": protocol, "protocolMax": protocol, "assets": assets}
+          # install.sh too: Update in ChurchPresenter runs it as root (--system-only) only once it matches this.
+          script = open("install/install.sh", "rb").read()
+          setup = {"name": "install.sh", "size": len(script), "sha256": hashlib.sha256(script).hexdigest()}
+          index = {"version": version, "protocolMin": protocol, "protocolMax": protocol, "assets": assets, "setup": setup}
           open("dist/signage-release.json", "w").write(json.dumps(index, indent=2) + "\n")
           EOF
           key=$(mktemp)

@@ -26,9 +26,13 @@ class PlayerEngine(
     private val links: LinkHealth = LinkHealth(),
     /** Whether this player can draw web pages: it has a Chromium. */
     private val web: Boolean = false,
+    /** Whether this player can show interactive pages: it has a Chromium and cage. */
+    private val interactive: Boolean = false,
+    /** The PIN pad the screen's gesture opens ([KioskControl]); shown while it is open. */
+    val pinPrompt: PinPrompt = PinPrompt(),
 ) {
     private val policy = TvPowerPolicy()
-    private val items = PlayableItems(store.files, links, web)
+    private val items = PlayableItems(store.files, links, web, interactive)
     private val rotation = Rotation(items)
     private var manifest: StoredManifest? = store.manifest()
     private var override: ScreenOverride? = store.override()
@@ -106,7 +110,8 @@ class PlayerEngine(
         val next = decide(stored.manifest, override, now) { items.canPlay(it, now) }
         decision = next
         policy.next(next.tv)?.let { command -> if (cecState != CecState.UNAVAILABLE) cec.send(command) }
-        _state.update { stateFor(stored.manifest, next, identifying, now).showing(testing) }
+        val prompt = pinPrompt.isOpen(now) && stored.manifest.screen.kioskPinHash != null
+        _state.update { stateFor(stored.manifest, next, identifying, now).copy(pinPrompt = prompt).showing(testing) }
     }
 
     /** Ticks once a second until cancelled. */

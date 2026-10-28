@@ -39,12 +39,14 @@ The player's first message is `hello`. Then:
 | server | `identify` | show the screen's name for a few seconds |
 | server | `refresh` | restart what draws the screen (mpv) |
 | server | `wipe` | delete everything stored (content, manifests, a manual switch) and fetch the manifest again; stays paired |
+| server | `tv` | `on`: turn the TV on (`true`) or to standby now over HDMI-CEC, without changing what plays; the schedule's next change sets it again |
+| server | `power` | `action`: `restart` or `shut_down` the player's machine. A shut-down screen stays off until its power is turned off and on |
 | server | `preview_request` | send a `preview` no wider than `maxWidth`; sent only while someone looks |
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`,
-`web_test`, `rotation`); ChurchPresenter sends `wipe`, `preview_request`, `update_available` and `web_test` only to
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `power`, `tv`, `system_update`,
+`web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
 types they do not know.
@@ -91,6 +93,24 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     minute: the screen falls back as for any playlist that cannot play, and never shows an error page.
   - `url`, `refreshMs` and `maxFps` are left out of an item that has none, so a manifest without links
     encodes as it did before them.
+  - An **interactive** page (`"interactive": true` on a `web` item) is one people use on a
+    touchscreen, such as an event sign-up. A player listing `interactive` shows it in a visible,
+    touchable browser instead of mpv. It stays up for as long as its playlist plays, and a rotation
+    stops on it. Nothing typed into it is kept: the browser starts from an empty profile, which is
+    deleted after `idleResetMs` without a touch (90 s when left out; ChurchPresenter allows 15 s to
+    30 min), when the page goes off screen, and on a restart. Only the page's own site and
+    `allowedHosts` (each with its subdomains; `"*"` for any site) open, checked where the page itself goes:
+    what it embeds always loads. While one is on screen its `status` says `"interactive": true`, and
+    its preview is the page as shown, typing included. ChurchPresenter sends an interactive item only to
+    players listing `interactive`. `interactive`, `idleResetMs` and `allowedHosts` are left out
+    when unset.
+- `screen.kioskPinHash`, when set, is what the screen's switch gesture (a finger held in the
+  top-left corner for 5 s) asks for before it switches between the playlist and an interactive page:
+  `pbkdf2:<iterations>:<salt hex>:<hash hex>` of a 4- to 8-digit PIN (`KioskPin` in `:core`). It is
+  set, changed and removed in ChurchPresenter only. The gesture's switch is stored on the player as an
+  override until the schedule next changes, as a manual switch is. `screen.kioskGesture: false` turns
+  the gesture off; `screen.kioskGesturePlaylistId` is the playlist it switches to (the first with a
+  touch page when left out, or when that one has none). Both are left out at their defaults.
 - A playlist item's `durationMs` is null for a video that plays to its end, and for a link that
   stays up for as long as its playlist plays.
 - A **rotation** is a playlist with a link and other items: a player listing `rotation` shows it one
