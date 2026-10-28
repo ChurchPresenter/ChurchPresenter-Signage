@@ -205,14 +205,18 @@ class WebRendererTest {
     fun overItsMemoryTheBrowserRestartsAndThePageComesBackNotFailed() = runBlocking {
         val failed = CompletableDeferred<String>()
         val fake = FakePage()
-        val browser = FakeBrowser(fake).also { it.memory = 10 }
+        val browser = FakeBrowser(fake)
         val renderer =
             WebRenderer(browser, server, 1920, 1080, { failed.complete(it) }, memoryLimitKb = 5, watchEveryMs = 1)
         val job = async { renderer.run(state(page("https://example.org"))) }
+        // Over the limit once the page is up, as a page left open grows. Over it before then, the
+        // fake's restart could swap the page's events before the page has started to read them.
+        withTimeout(WAIT_MS) { fake.navigations.receive() }
+        browser.memory = 10
         withTimeout(WAIT_MS) { while (browser.stops == 0) yield() }
         browser.memory = 1
-        // The page is opened again: a second navigation, and no failure.
-        withTimeout(WAIT_MS) { repeat(2) { fake.navigations.receive() } }
+        // The page is opened again: another navigation, and no failure.
+        withTimeout(WAIT_MS) { fake.navigations.receive() }
         assertTrue(!failed.isCompleted)
         job.cancel()
     }
