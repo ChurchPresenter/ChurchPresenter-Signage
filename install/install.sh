@@ -61,7 +61,8 @@ if [ "$address_given" -eq 0 ] && [ -r /dev/tty ]; then
   read -r -p "ChurchPresenter address: " address < /dev/tty || address=""
 fi
 
-has_package() { apt-cache policy "$1" 2>/dev/null | grep -q 'Candidate: [^(]'; }
+# Not grep -q: it stops reading at the match, apt-cache dies of SIGPIPE, and pipefail fails the check.
+has_package() { apt-cache policy "$1" 2>/dev/null | grep 'Candidate: [^(]' >/dev/null; }
 
 say "Installing mpv, Chromium, the video drivers and the CEC tools"
 export DEBIAN_FRONTEND=noninteractive
