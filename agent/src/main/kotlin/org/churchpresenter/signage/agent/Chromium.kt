@@ -48,7 +48,8 @@ class Chromium(
     private val client: HttpClient,
     /** Present once the GPU failed on this player: from then on pages are drawn in software. */
     private val gpuOff: Path = profile.resolveSibling(GPU_OFF_MARKER),
-    private val arm: Boolean = System.getProperty("os.arch") in ARM_ARCHES,
+    /** The machine has a GPU to draw with: a render device, as on a Pi and on Intel and AMD graphics. */
+    private val hasGpu: Boolean = hasRenderDevice(),
     /** The machine's memory in KiB, which sizes Chromium's JavaScript heap. */
     private val totalMemoryKb: Long? = Memory.read()?.totalKb,
 ) : WebRenderer.Browser {
@@ -63,8 +64,11 @@ class Chromium(
         Runtime.getRuntime().addShutdownHook(Thread { process?.destroy() })
     }
 
-    /** The GPU draws on an ARM player until it fails there once; x86 players stay in software. */
-    override val gpu: Boolean get() = arm && !gpuOff.exists()
+    /**
+     * The GPU draws where the machine has one, until it fails there once; a machine without one (a
+     * virtual machine) draws in software.
+     */
+    override val gpu: Boolean get() = hasGpu && !gpuOff.exists()
 
     override fun useSoftware() {
         if (!gpu) return
@@ -230,7 +234,10 @@ class Chromium(
 
         /** Where the marker that turns the GPU off lives, beside the browser profile. */
         const val GPU_OFF_MARKER = "web-gpu-off"
-        private val ARM_ARCHES = setOf("aarch64", "arm64")
+
+        /** Whether [dri] has a render device (`renderD128`), which mpv also draws with. */
+        fun hasRenderDevice(dri: Path = Path("/dev/dri")): Boolean =
+            dri.toFile().list()?.any { it.startsWith("renderD") } == true
         private const val SMALL_MACHINE_KB = 2L * 1024 * 1024
         private const val SMALL_HEAP_MB = 512
         private const val HEAP_MB = 1024

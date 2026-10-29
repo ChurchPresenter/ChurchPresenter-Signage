@@ -3,6 +3,8 @@ package org.churchpresenter.signage.agent
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.createDirectories
+import kotlin.io.path.createFile
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
@@ -42,14 +44,24 @@ class ChromiumArgsTest {
     fun aGpuThatFailsOnceIsOffForGood() {
         HttpClient(CIO).use { client ->
             val marker = dir.resolve(Chromium.GPU_OFF_MARKER)
-            val arm = Chromium("chromium", dir.resolve("profile"), client, marker, arm = true, totalMemoryKb = 1)
-            assertTrue(arm.gpu)
-            arm.useSoftware()
+            val withGpu = Chromium("chromium", dir.resolve("profile"), client, marker, hasGpu = true, totalMemoryKb = 1)
+            assertTrue(withGpu.gpu)
+            withGpu.useSoftware()
             assertTrue(marker.exists())
-            assertFalse(arm.gpu)
-            assertFalse(Chromium("chromium", dir.resolve("profile"), client, marker, arm = false).gpu)
-            assertNull(arm.memoryKb())
+            assertFalse(withGpu.gpu)
+            assertFalse(Chromium("chromium", dir.resolve("profile"), client, marker, hasGpu = false).gpu)
+            assertNull(withGpu.memoryKb())
         }
+    }
+
+    @Test
+    fun aMachineHasAGpuWhenItHasARenderDevice() {
+        val dri = dir.resolve("dri").createDirectories()
+        assertFalse(Chromium.hasRenderDevice(dir.resolve("none")))
+        dri.resolve("card0").createFile()
+        assertFalse(Chromium.hasRenderDevice(dri))
+        dri.resolve("renderD128").createFile()
+        assertTrue(Chromium.hasRenderDevice(dri))
     }
 
     @Test

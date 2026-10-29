@@ -57,4 +57,18 @@ class SystemdSetupTest {
     fun aFailureWithNoLogSaysSo() = runTest {
         assertEquals("the system update failed", SystemdSetup(systemctl(1), root.resolve("missing.log")).run())
     }
+
+    @Test
+    fun theWaitingUpdatesAreReadFromTheDailyChecksFile() {
+        val pending = root.resolve("pending")
+        assertNull(SystemdSetup.pending(pending), "no check yet")
+        pending.writeText("12\n")
+        assertEquals(12, SystemdSetup.pending(pending))
+        pending.writeText("0\n")
+        assertEquals(0, SystemdSetup.pending(pending))
+        listOf("", "twelve", "-1").forEach {
+            pending.writeText(it)
+            assertNull(SystemdSetup.pending(pending), it)
+        }
+    }
 }

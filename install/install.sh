@@ -185,7 +185,49 @@ polkit.addRule(function (action, subject) {
 });
 EOF
 fi
+
+say "Counting the updates waiting for this machine, once a day"
+# ChurchPresenter shows Update only when something is waiting: this root timer refreshes the package
+# lists and writes how many would be upgraded where the player can read it, and nothing else.
+cat > /usr/local/sbin/churchpresenter-signage-check.new <<'EOF'
+#!/bin/sh
+# Counts this machine's packages with an update waiting, for ChurchPresenter's Update button: the
+# signage player reads the number and sends it with its status.
+set -u
+dir=/var/lib/churchpresenter-signage-setup
+mkdir -p "$dir"
+apt-get update -q >/dev/null 2>&1 || true
+count="$(apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | grep -c '^Inst ')" || true
+printf '%s\n' "${count:-0}" > "$dir/pending.new" && mv -f "$dir/pending.new" "$dir/pending"
+EOF
+chmod 0755 /usr/local/sbin/churchpresenter-signage-check.new
+mv -f /usr/local/sbin/churchpresenter-signage-check.new /usr/local/sbin/churchpresenter-signage-check
+cat > /etc/systemd/system/churchpresenter-signage-check.service <<EOF
+[Unit]
+Description=Count the updates waiting for this machine, for ChurchPresenter's Signage tab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+ExecStart=/usr/local/sbin/churchpresenter-signage-check
+EOF
+cat > /etc/systemd/system/churchpresenter-signage-check.timer <<EOF
+[Unit]
+Description=Count the updates waiting for this machine once a day
+
+[Timer]
+OnBootSec=5min
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
 systemctl daemon-reload
+systemctl enable --now churchpresenter-signage-check.timer >/dev/null
 
 if [ "$system_only" -eq 1 ]; then
   # The player's own packages (Chromium, mpv and the rest) were brought up to date above, and failed
@@ -194,6 +236,8 @@ if [ "$system_only" -eq 1 ]; then
   say "Updating every other package"
   apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade ||
     echo "Warning: some other packages could not be updated; the player's own are up to date"
+  # So Update goes away in ChurchPresenter as soon as the player reports again.
+  /usr/local/sbin/churchpresenter-signage-check || true
   say "Updated"
   exit 0
 fi
@@ -306,6 +350,8 @@ EOF
 
 say "Turning off the console login on the first screen and screen blanking"
 systemctl disable getty@tty1.service 2>/dev/null || true
+# A login on the second screen (Ctrl+Alt+F2), for when the network is down; the player is on the first.
+systemctl enable getty@tty2.service 2>/dev/null || true
 if [ -f /boot/firmware/cmdline.txt ] && ! grep -q 'consoleblank=0' /boot/firmware/cmdline.txt; then
   sed -i '1 s/$/ consoleblank=0/' /boot/firmware/cmdline.txt
 fi

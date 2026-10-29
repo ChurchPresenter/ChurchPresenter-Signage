@@ -25,7 +25,7 @@ The player's first message is `hello`. Then:
 | From | `type` | Meaning |
 |---|---|---|
 | player | `hello` | id, agent version, protocol range, manifest version, screen size, platform, pairing code when unpaired, `features` |
-| player | `status` | what it shows, last sync, free disk, CEC state, errors, and its health (processor and memory in use, temperature, uptime, each null where unknown); on change and every minute |
+| player | `status` | what it shows, last sync, free disk, CEC state, errors, and its health (processor and memory in use, temperature, uptime, each null where unknown), and `systemUpdates`, how many of the machine's packages have an update waiting (null where unknown: ChurchPresenter then offers Update as before); on change and every minute |
 | player | `preview` | a JPEG of what the screen shows (base64), its size and when it was taken; answers `preview_request` |
 | player | `web_test_result` | for each frame rate tried: the rate asked for, the average that reached the screen, how busy the processor was and its highest temperature (each null where unknown), whether the GPU drew the page; or why the test could not run |
 | player | `update_progress` | version, `downloading` (with a percentage), `checking`, `installing`, `restarting`, `failed` or `rolled_back`, and why |

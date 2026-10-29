@@ -17,6 +17,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -48,6 +49,23 @@ class MachineCommandsTest {
         )
         listOf(Features.POWER, Features.TV, Features.INTERACTIVE).forEach { assertTrue(it in able.features, it) }
         assertFalse(Features.SYSTEM_UPDATE in able.features, "no updater with a setup service")
+    }
+
+    @Test
+    fun theWaitingUpdatesAreReportedOnlyByAPlayerThatUpdatesItsMachine() {
+        val app = AppFolder(root.resolve("app"))
+        val machine = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {}, system = SystemSetup { null })
+        val updating = PlayerSession(
+            store, engine, agent, sync = { SyncResult.UpToDate }, random = Random(1),
+            updater = machine, systemUpdates = { 12 },
+        )
+        assertEquals(12, updating.status().systemUpdates)
+        val playerOnly = Updater(app, Platform.LINUX_ARM64, { _, _ -> }, {}, {})
+        val notUpdating = PlayerSession(
+            store, engine, agent, sync = { SyncResult.UpToDate }, random = Random(1),
+            updater = playerOnly, systemUpdates = { 12 },
+        )
+        assertNull(notUpdating.status().systemUpdates)
     }
 
     @Test
