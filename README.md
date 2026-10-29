@@ -81,6 +81,23 @@ A schedule time set to **TV off** puts the TV in standby; the next time that pla
 back on. Where the TV answers, the screen's settings also have **TV on** and **TV off**, which act at
 once without changing what plays.
 
+### Keyboard shortcuts on the screen
+
+The player takes the first console and turns its login prompt off, so the screen shows no terminal.
+With a keyboard plugged in:
+
+| Keys | What it does |
+|---|---|
+| **Ctrl+Alt+F2** | A login prompt on the second console (also F3 to F6) — sign in there when the screen cannot be reached over the network, for example when Wi-Fi did not come up |
+| **Ctrl+Alt+F1** | Back to the player |
+
+On that console, `ifup wlan0` (the name `ip -br link` shows) brings Wi-Fi up on Debian;
+`sudo systemctl stop churchpresenter-signage` stops the player and `start` brings it back. If no
+console answers, restart and pick **Advanced options → recovery mode** in the boot menu (Debian and
+Ubuntu): the player does not start there.
+
+The player itself takes no keys; everything it does is set from ChurchPresenter.
+
 ## Kiosk mode: touch pages
 
 A screen with a touchscreen can double as a kiosk: an event sign-up, check-in or visitor card that
