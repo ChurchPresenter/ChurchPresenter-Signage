@@ -7,6 +7,7 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
+import kotlin.io.path.readText
 
 /**
  * Updates the machine itself (Chromium, mpv and every other package, and its settings for the player)
@@ -55,8 +56,18 @@ class SystemdSetup(
     companion object {
         const val UNIT = "churchpresenter-signage-setup.service"
         const val LOG = "/var/log/churchpresenter-signage-setup.log"
+
+        /** How many packages have an update waiting: install.sh's daily check writes it, as root. */
+        const val PENDING = "/var/lib/churchpresenter-signage-setup/pending"
         private const val LAST_LINES = 2
         private val UNIT_FILE = Path("/etc/systemd/system/$UNIT")
+
+        /** The count in [file], or null where there is none yet or it is not a number. */
+        fun pending(file: Path = Path(PENDING)): Int? = try {
+            file.readText().trim().toIntOrNull()?.takeIf { it >= 0 }
+        } catch (_: IOException) {
+            null
+        }
 
         /** The setup service where install.sh put one (installs before it have none), or null. */
         fun find(): SystemdSetup? = CageKiosk.find("systemctl")?.takeIf { UNIT_FILE.exists() }?.let(::SystemdSetup)

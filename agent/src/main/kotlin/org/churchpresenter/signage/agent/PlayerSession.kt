@@ -47,6 +47,8 @@ class PlayerSession(
     private val power: Power? = null,
     /** Turns the TV on (true) or to standby now; null where the player has no CEC. */
     private val tv: ((Boolean) -> Boolean)? = null,
+    /** How many of the machine's packages have an update waiting; null where it cannot tell. */
+    private val systemUpdates: () -> Int? = { null },
 ) {
     private val testing = AtomicBoolean(false)
 
@@ -228,6 +230,7 @@ class PlayerSession(
             temperatureC = now.temperatureC,
             uptimeSeconds = now.uptimeSeconds,
             interactive = state.kioskWanted,
+            systemUpdates = if (updater?.updatesSystem == true) systemUpdates() else null,
         )
     }
 

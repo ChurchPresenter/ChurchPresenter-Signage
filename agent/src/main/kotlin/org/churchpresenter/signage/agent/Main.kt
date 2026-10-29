@@ -22,12 +22,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     // Previews are scaled with java.awt, which must not look for a display.
     System.setProperty("java.awt.headless", "true")
-    val config = try {
-        AgentConfig.parse(args.toList())
-    } catch (e: IllegalArgumentException) {
-        Log.error("Bad arguments: ${e.message}")
-        exitProcess(2)
-    }
+    val config = parseConfig(args)
     config.dataDir.createDirectories()
     val store = PlayerStore(config.dataDir)
     if (config.factoryReset) {
@@ -106,6 +101,7 @@ fun main(args: Array<String>) {
         interactive = kiosk != null,
         power = SystemdPower.find(),
         tv = tvSwitch(cec),
+        systemUpdates = { SystemdSetup.pending() },
     )
     if (!store.identity().isPaired) engine.setMessage(session.pairingMessage())
 
@@ -125,6 +121,14 @@ fun main(args: Array<String>) {
 }
 
 /** The Chromium that draws web pages, said in the log either way. */
+/** The arguments, or the agent stops here on ones it cannot read. */
+private fun parseConfig(args: Array<String>): AgentConfig = try {
+    AgentConfig.parse(args.toList())
+} catch (e: IllegalArgumentException) {
+    Log.error("Bad arguments: ${e.message}")
+    exitProcess(2)
+}
+
 private fun findChromium(): String? = Chromium.find().also { found ->
     Log.info(if (found != null) "Web pages drawn by $found" else "No Chromium found: web pages are not offered")
 }
