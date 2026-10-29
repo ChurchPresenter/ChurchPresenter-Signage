@@ -50,6 +50,17 @@ wget -qO- https://github.com/ChurchPresenter/ChurchPresenter-Signage/releases/la
 **No `sudo`?** (Debian when a root password was set during install.) Sign in as root first with
 `su -`, then run either command without `sudo`.
 
+**Installing Debian for it.** Use the netinst image, which carries the Wi-Fi firmware. At *Software
+selection*, untick the desktop environment and tick **SSH server**, so you can reach the screen from
+another computer. A screen on Wi-Fi: set the network up in the installer. If it is not connected
+after a restart, sign in on the second console (see
+[Keyboard shortcuts on the screen](#keyboard-shortcuts-on-the-screen)), run `ifup wlan0` (the name
+`ip -br link` shows), and change `allow-hotplug` to `auto` for it in `/etc/network/interfaces` so
+it comes up at every start.
+
+**Web pages** are drawn with the graphics chip wherever the machine has one (Intel, AMD, a Pi), and
+in software on a virtual machine. Windows mini PCs are not supported yet.
+
 ### When ChurchPresenter is on another network
 
 The screen finds ChurchPresenter by itself on the same network. If the TVs and the ChurchPresenter
@@ -114,7 +125,8 @@ people fill in themselves, and the after-hours playlist the rest of the time.
 **What people see.** The page fills the screen, with no address bar, tabs or menus. An on-screen
 keyboard comes up for text fields (numbers for phone fields, `@` and `.com` for email ones), and a
 keyboard button in the bottom-right corner brings it up for fields that do not. Ten seconds before
-it starts over, a strip says so; a tap keeps going.
+it starts over, a strip says so; a tap keeps going. There is no mouse pointer on a touch page: with
+a mouse plugged in, it shows while the mouse moves and goes on a touch or after a few seconds.
 
 **Nothing anyone types is kept.** The browser starts on an empty, private profile held in memory,
 which is deleted after the page has gone untouched for its time, when the page goes off screen, and
@@ -156,6 +168,10 @@ settings you can turn that off, choose which touch page it opens, and set a PIN 
 when a newer one is out. The system update runs as root from the release's own `install.sh`, which
 the screen downloads itself and checks against the signed release before it runs it; the player
 can only ask for it to start.
+
+Once a day the screen counts the system updates waiting, and the card shows **Update (12)** only
+when there are some; **Update to 26.0.x** shows whenever a newer player is out. A screen installed
+before the count shows a plain **Update** until its next update brings the count in.
 
 A screen installed before this needs its install command run once more to get touch pages, restart
 and shut down from ChurchPresenter, and this kind of update. Everything after that comes through
