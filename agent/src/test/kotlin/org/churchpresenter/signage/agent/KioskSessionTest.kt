@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -219,6 +220,28 @@ class KioskSessionTest {
         fake.binding("not json")
         fake.binding("""{"t":"key","k":"b"}""")
         assertEquals("b", fake.await("Input.insertText")["text"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun aHiddenPointerIsRedrawnWhereTheMouseIs() = runBlocking<Unit> {
+        val browser = FakeBrowser()
+        start(browser)
+        val fake = browser.next()
+        fake.await("Page.navigate")
+        // Before the mouse has been anywhere there is nowhere to move it, but the page's middle.
+        fake.binding("""{"t":"cursor"}""")
+        fake.binding("""{"t":"cursor","x":"far"}""")
+        fake.binding("""{"t":"cursor","cx":960,"cy":540}""")
+        val middle = fake.await("Input.dispatchMouseEvent")
+        assertEquals(960.0 to 540.0, middle["x"]!!.jsonPrimitive.double to middle["y"]!!.jsonPrimitive.double)
+        fake.binding("""{"t":"cursor","x":120.5,"y":40}""")
+        val move = fake.await("Input.dispatchMouseEvent")
+        assertEquals("mouseMoved", move["type"]!!.jsonPrimitive.content)
+        assertEquals(120.5 to 40.0, move["x"]!!.jsonPrimitive.double to move["y"]!!.jsonPrimitive.double)
+        // A new page, where the mouse has not moved yet: where it last was.
+        fake.binding("""{"t":"cursor","cx":960,"cy":540}""")
+        val again = fake.await("Input.dispatchMouseEvent")
+        assertEquals(120.5 to 40.0, again["x"]!!.jsonPrimitive.double to again["y"]!!.jsonPrimitive.double)
     }
 
     @Test

@@ -41,8 +41,12 @@ class CageKiosk(
     ): T {
         profile.createDirectories()
         val command = command(profile, orientation)
+        val cursors = BlankCursor.write(profile.resolveSibling("churchpresenter-kiosk-cursor"))
         val process = Chromium.launcher(command)
-            .apply { environment()["WLR_LIBINPUT_NO_DEVICES"] = "1" }
+            .apply {
+                environment()["WLR_LIBINPUT_NO_DEVICES"] = "1"
+                environment()["XCURSOR_PATH"] = cursors.toString()
+            }
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
@@ -77,7 +81,9 @@ class CageKiosk(
         }
         val turn = "out=\$('$wlrRandr' | awk 'NR==1{print \$1}'); " +
             "'$wlrRandr' --output \"\$out\" --transform $degrees; exec \"\$@\""
-        return listOf(cage, "-d", "--", "/bin/sh", "-c", turn, "kiosk", chromium) + KioskCommand.chromiumArgs(profile)
+        return listOf(cage) + KioskCommand.CAGE_ARGS + listOf("--", "/bin/sh", "-c", turn, "kiosk") +
+            KioskCommand.CHROMIUM_ENV + chromium +
+            KioskCommand.chromiumArgs(profile)
     }
 
     private suspend fun awaitPort(process: Process, profile: Path): Int {

@@ -75,6 +75,21 @@ class KioskPage(private val page: WebRenderer.Page) {
         page.call("Input.dispatchKeyEvent", keyEvent("keyUp", key, code, null))
     }
 
+    /**
+     * A mouse move to where the mouse already is, at [x], [y] in the page: Chromium changes the pointer
+     * the page asks for only on mouse input, so the page's hidden pointer goes only after one.
+     */
+    suspend fun refreshCursor(x: Double, y: Double) {
+        page.call(
+            "Input.dispatchMouseEvent",
+            buildJsonObject {
+                put("type", "mouseMoved")
+                put("x", x)
+                put("y", y)
+            },
+        )
+    }
+
     /** Writes what the page shows now to [file] as a JPEG; false when it could not. */
     suspend fun screenshot(file: Path): Boolean = try {
         val shot = page.call(

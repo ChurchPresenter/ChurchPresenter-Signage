@@ -231,9 +231,54 @@
   };
 
   root.append(toggle, kb, strip, pin);
+
+  // A mouse's pointer shows while the mouse moves, and goes on a touch, after it has stood still a
+  // few seconds, and on every new page (with no mouse, cage's own pointer is blank: BlankCursor).
+  const noCursor = document.createElement('style');
+  noCursor.textContent = '*, *::before, *::after { cursor: none !important; }';
+  // Chromium changes the pointer only on mouse input, so the agent then moves the mouse to where it
+  // already is; the move that brings is not the mouse's.
+  let cursorTimer = 0;
+  let cursorHidden = false;
+  let cursorStarted = false;
+  let ignoreMovesUntil = 0;
+  let mouseX = null;
+  let mouseY = null;
+  const hideCursor = () => {
+    clearTimeout(cursorTimer);
+    cursorHidden = true;
+    const top = document.documentElement;
+    if (!top || noCursor.isConnected) return;
+    top.append(noCursor);
+    ignoreMovesUntil = Date.now() + 500;
+    // Not moved on this page: the agent uses where it last was, or the middle, where cage starts it.
+    const middle = { cx: innerWidth / 2, cy: innerHeight / 2 };
+    send(mouseX === null ? { t: 'cursor', ...middle } : { t: 'cursor', x: mouseX, y: mouseY });
+  };
+  addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse' || Date.now() < ignoreMovesUntil) return;
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    cursorHidden = false;
+    noCursor.remove();
+    clearTimeout(cursorTimer);
+    cursorTimer = setTimeout(hideCursor, 3000);
+  }, true);
+  addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hideCursor(); }, true);
+
   // The script runs before the page has any element; the layer goes in once <html> is there, and
   // back in if the page replaces it.
-  const attach = () => { const top = document.documentElement; if (top && !host.isConnected) top.append(host); };
+  const attach = () => {
+    const top = document.documentElement;
+    if (!top) return;
+    if (!host.isConnected) top.append(host);
+    if (!cursorStarted) {
+      cursorStarted = true;
+      hideCursor();
+    } else if (cursorHidden && !noCursor.isConnected) {
+      top.append(noCursor);
+    }
+  };
   attach();
   document.addEventListener('DOMContentLoaded', attach);
   window.addEventListener('load', attach);

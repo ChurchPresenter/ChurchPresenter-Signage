@@ -77,7 +77,16 @@ class KioskNavigation(home: String, allowedHosts: List<String>) {
 object KioskCommand {
     /** cage running [chromium] with [profile], opening a blank page that the session then sends where it should go. */
     fun command(cage: String, chromium: String, profile: Path): List<String> =
-        listOf(cage, "-d", "--", chromium) + chromiumArgs(profile)
+        listOf(cage) + CAGE_ARGS + "--" + CHROMIUM_ENV + chromium + chromiumArgs(profile)
+
+    /** No window decorations; Ctrl+Alt+F2 still reaches a console login, as it does under mpv. */
+    val CAGE_ARGS = listOf("-d", "-s")
+
+    /**
+     * Chromium draws its pointer from the system's cursor theme, not cage's blank one ([BlankCursor]):
+     * nothing shows on a touch, and a mouse's pointer appears once the mouse moves.
+     */
+    val CHROMIUM_ENV = listOf("/usr/bin/env", "-u", "XCURSOR_PATH")
 
     /**
      * Full screen, private and forgetful: an incognito window with nothing of a first run, no

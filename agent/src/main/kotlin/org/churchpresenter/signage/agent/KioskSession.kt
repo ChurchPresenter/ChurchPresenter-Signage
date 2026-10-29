@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import org.churchpresenter.signage.core.Orientation
 import org.churchpresenter.signage.core.SignageJson
@@ -75,6 +77,12 @@ class KioskSession(
     /** The page on screen now, for [screenshot]; null while the kiosk does not have the screen. */
     @Volatile
     private var showing: KioskPage? = null
+
+    /**
+     * Where the mouse last was, for a new page that hides its pointer before the mouse has moved on it;
+     * until the mouse has moved, the page's middle, where cage starts the pointer.
+     */
+    private var mouseAt: Pair<Double, Double>? = null
 
     /** Someone touched the screen (from [TouchInput]): the page's idle time starts again. */
     fun touched() {
@@ -183,6 +191,15 @@ class KioskSession(
             "key" -> message.string("k")?.let { kiosk.key(it) }
             "pin" -> kiosk.evaluate("pinResult(${pins.entered(message.string("v").orEmpty())})")
             "pinCancel" -> pins.cancelled()
+            "cursor" -> {
+                val x = (message["x"] as? JsonPrimitive)?.doubleOrNull
+                val y = (message["y"] as? JsonPrimitive)?.doubleOrNull
+                if (x != null && y != null) mouseAt = x to y
+                val middleX = (message["cx"] as? JsonPrimitive)?.doubleOrNull
+                val middleY = (message["cy"] as? JsonPrimitive)?.doubleOrNull
+                val at = mouseAt ?: if (middleX != null && middleY != null) middleX to middleY else null
+                at?.let { (atX, atY) -> kiosk.refreshCursor(atX, atY) }
+            }
         }
     }
 
