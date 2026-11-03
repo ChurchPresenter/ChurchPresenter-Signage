@@ -178,14 +178,22 @@ private class KioskParts(
         profileDir = CageKiosk.profileDir(),
         onFailed = { url -> engine.linkFailed(listOf(url)) },
         pins = control,
+        onIdle = engine.idleScreen::backToIdle,
     )
     private val touch = CageKiosk.find("libinput")?.let { libinput ->
         TouchInput(
             libinput,
             orientation = { engine.state.value.orientation },
-            onActivity = session::touched,
+            onActivity = {
+                session.touched()
+                engine.idleScreen.touched()
+            },
             onGesture = control::gesture,
         )
+    }
+
+    init {
+        engine.idleScreen.touchWakes = touch != null
     }
 
     /** What the kiosk shows, for the preview; null while it does not have the screen. */

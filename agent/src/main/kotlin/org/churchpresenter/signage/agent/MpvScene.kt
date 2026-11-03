@@ -26,6 +26,7 @@ object MpvScene {
 
     private const val CARD_OVERLAY = 1
     private const val IDENTIFY_OVERLAY = 2
+    private const val PROMPT_OVERLAY = 3
 
     /**
      * [previous] is what mpv shows now, or null when it has just started. [blank] is a black picture:
@@ -51,6 +52,8 @@ object MpvScene {
         if (previous == null || OsdText.idleCard(previous) != card) add(overlay(CARD_OVERLAY, card))
         val identify = OsdText.identify(next)
         if (previous == null || OsdText.identify(previous) != identify) add(overlay(IDENTIFY_OVERLAY, identify))
+        val prompt = OsdText.tapPrompt(next)
+        if (previous == null || OsdText.tapPrompt(previous) != prompt) add(overlay(PROMPT_OVERLAY, prompt))
     }
 
     private sealed interface Content {

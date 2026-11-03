@@ -23,6 +23,13 @@ data class ScreenState(
     val stepped: Boolean = false,
     /** The touch gesture asked for the screen's PIN: the kiosk browser shows its PIN pad. */
     val pinPrompt: Boolean = false,
+    /**
+     * [items] are an interactive page's idle playlist, and a touch on the screen opens this page
+     * ([PlayerEngine.IdleScreen.touched]); null for anything else.
+     */
+    val touchOpens: ScreenItem? = null,
+    /** The interactive page on screen was opened by a touch on its idle playlist: its idle time has started. */
+    val woken: Boolean = false,
 ) {
     /** The interactive page on screen, which the kiosk browser shows instead of mpv; null for anything else. */
     val kiosk: ScreenItem?
@@ -64,6 +71,12 @@ data class ScreenItem(
     val idleResetMs: Long = PlaylistItem.DEFAULT_IDLE_RESET_MS,
     /** Other sites an interactive page may go to besides its own. */
     val allowedHosts: List<String> = emptyList(),
+    /** The playlist an interactive page's screen plays while nobody is using it. */
+    val idlePlaylistId: String? = null,
+    /** The web page an interactive page's screen shows while nobody is using it. */
+    val idleUrl: String? = null,
+    /** The line written over the idle playlist or page, so people know to touch it; none when null. */
+    val idlePrompt: String? = null,
 ) {
     companion object {
         const val DEFAULT_PICTURE_MS = 8_000L
