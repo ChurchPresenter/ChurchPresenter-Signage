@@ -68,6 +68,9 @@ class PlayableItems(
                 interactive = item.interactive && item.kind == MediaKind.WEB,
                 idleResetMs = item.idleResetMs ?: PlaylistItem.DEFAULT_IDLE_RESET_MS,
                 allowedHosts = item.allowedHosts,
+                idlePlaylistId = item.idlePlaylistId?.takeIf { item.interactive },
+                idleUrl = item.idleUrl?.takeIf { item.interactive && it.isNotBlank() },
+                idlePrompt = item.idlePrompt?.trim()?.takeIf { item.interactive && it.isNotEmpty() },
             )
         }
     } else {

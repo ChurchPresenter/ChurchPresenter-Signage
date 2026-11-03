@@ -8,6 +8,14 @@ written. File hashes are 64 lower-case hex digits of SHA-256.
 ChurchPresenter advertises `_churchpresenter._tcp` over mDNS while dev mode and the companion server
 are on. A player installed with an address uses that instead.
 
+A paired player tries the address it was installed with and the last one that answered before it
+looks, and waits at most 15 s between tries. While a paired screen is away, ChurchPresenter knocks
+on the IP it last connected from: a UDP datagram to port `47640` (`NUDGE_PORT`), the JSON
+`{"owner": <nudgeOwner(ownerId)>, "port": <server port>}`, every 10 s for its first 2 minutes and
+every minute after. A player acts only on its own owner's knock, and only by connecting at once to
+the sender's address and that port, which it does not trust to release it; its token is checked
+there as on any connection. Knocks need no multicast, so they reach a screen on Wi-Fi.
+
 ## Endpoints (ChurchPresenter's companion server)
 All answer `403 "dev mode only"` when dev mode is off. All but the WebSocket's pairing need
 `Authorization: Bearer <token>`.
@@ -45,7 +53,7 @@ The player's first message is `hello`. Then:
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `power`, `tv`, `system_update`,
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `power`, `tv`, `system_update`,
 `web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
@@ -103,6 +111,15 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     what it embeds always loads. While one is on screen its `status` says `"interactive": true`, and
     its preview is the page as shown, typing included. ChurchPresenter sends an interactive item only to
     players listing `interactive`. `interactive`, `idleResetMs` and `allowedHosts` are left out
+    when unset. Only a person's own press or key counts as a touch; what the page does by itself
+    (scrolling, filling a field) never starts the reset.
+  - An interactive item may name what its screen shows while nobody uses it: `idlePlaylistId` (a
+    playlist played as any other, which a touch on the screen leaves for the page; it needs the
+    player's touch input, and is skipped when it is a rotation, holds a touch page or cannot play) or
+    `idleUrl` (a page shown in the same browser, under a cover whose first tap opens the interactive
+    page and does nothing on the idle one). At most one is set. The page's idle reset goes back to
+    it. `idlePrompt` is a line written over it ("Tap to sign up"), none when left out.
+    ChurchPresenter sends these only to players listing `idle_screen`, and leaves all three out
     when unset.
 - `screen.kioskPinHash`, when set, is what the screen's switch gesture (a finger held in the
   top-left corner for 5 s) asks for before it switches between the playlist and an interactive page:

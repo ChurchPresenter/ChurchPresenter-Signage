@@ -8,8 +8,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.ServerMessage
 import org.churchpresenter.signage.core.SignageJson
@@ -17,7 +19,8 @@ import java.io.IOException
 
 /**
  * Keeps one WebSocket open to ChurchPresenter whenever it is reachable, and gives up gracefully when
- * it is not — the player plays on regardless. Retries back off from 2 s to a minute.
+ * it is not — the player plays on regardless. Retries back off from 2 s to [MAX_BACKOFF_MS], and a
+ * [nudged] ChurchPresenter is tried at once.
  */
 class ServerConnection(
     private val client: HttpClient,
@@ -26,28 +29,48 @@ class ServerConnection(
     private val session: PlayerSession,
     private val onAddress: (String) -> Unit = {},
 ) {
+    /** The address a [Nudge][org.churchpresenter.signage.core.Nudge] came from, tried first next time. */
+    @Volatile
+    private var nudgedAddress: String? = null
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * This screen's owner knocked from [address]: the next attempt starts now, there first. Ignored
+     * while connected, since nothing waits then.
+     */
+    fun nudged(address: String) {
+        nudgedAddress = address
+        wake.trySend(Unit)
+    }
+
     suspend fun run() {
         var backoff = MIN_BACKOFF_MS
         while (true) {
             val next = connectToAny()
             backoff = when (next) {
                 SessionNext.RECONNECT -> MIN_BACKOFF_MS
-                SessionNext.WAIT_LONG -> MAX_BACKOFF_MS
+                SessionNext.WAIT_LONG -> UNSUPPORTED_WAIT_MS
                 SessionNext.STAY, null -> (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
             }
-            if (next != SessionNext.RECONNECT) delay(backoff)
+            // A nudge that came while connected is stale: only one that comes while waiting counts.
+            wake.tryReceive()
+            if (next != SessionNext.RECONNECT) withTimeoutOrNull(backoff) { wake.receive() }
         }
     }
 
     /**
-     * Tries the addresses known without looking, then whatever advertises on the network that was not
-     * tried. Only a known address is trusted to release this screen: one found on the network may be
-     * another ChurchPresenter, which does not know the screen and must not make it forget its owner.
+     * Tries a nudged address, then the addresses known without looking, then whatever advertises on
+     * the network that was not tried. Only a known address is trusted to release this screen: one
+     * found on the network or nudged from may be another ChurchPresenter, which does not know the
+     * screen and must not make it forget its owner.
      */
     private suspend fun connectToAny(): SessionNext? {
         val known = locator.known(store.identity())
+        val nudged = nudgedAddress?.also { nudgedAddress = null }
+        val first = listOfNotNull(nudged?.takeIf { it !in known })
+        tryEach(first, trusted = false)?.let { return it }
         tryEach(known, trusted = true)?.let { return it }
-        return tryEach(locator.browse() - known.toSet(), trusted = false)
+        return tryEach(locator.browse() - known.toSet() - first.toSet(), trusted = false)
     }
 
     private suspend fun tryEach(addresses: List<String>, trusted: Boolean): SessionNext? {
@@ -113,7 +136,12 @@ class ServerConnection(
 
     private companion object {
         const val MIN_BACKOFF_MS = 2_000L
-        const val MAX_BACKOFF_MS = 60_000L
+
+        /** The longest pause between tries while nothing answers: a ChurchPresenter just started is found soon. */
+        const val MAX_BACKOFF_MS = 15_000L
+
+        /** The pause after a ChurchPresenter that speaks another protocol, which will not change soon. */
+        const val UNSUPPORTED_WAIT_MS = 60_000L
         const val STATUS_EVERY_MS = 60_000L
     }
 }

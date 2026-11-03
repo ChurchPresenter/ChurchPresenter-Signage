@@ -105,6 +105,24 @@ class KioskPage(private val page: WebRenderer.Page) {
         false
     }
 
+    /**
+     * Where the page is now, without its query or fragment (they can hold what someone typed); null
+     * when it does not say.
+     */
+    suspend fun location(): String? = try {
+        val result = page.call(
+            "Runtime.evaluate",
+            buildJsonObject {
+                put("expression", "location.origin + location.pathname")
+                put("returnByValue", true)
+            },
+        )["result"]?.jsonObject
+        result?.string("value")
+    } catch (e: IOException) {
+        Log.warn("The interactive page did not say where it is: ${e.message}")
+        null
+    }
+
     /** Calls the kiosk script's [call] (`countdown(3)`); a page between documents just misses it. */
     suspend fun evaluate(call: String) {
         try {

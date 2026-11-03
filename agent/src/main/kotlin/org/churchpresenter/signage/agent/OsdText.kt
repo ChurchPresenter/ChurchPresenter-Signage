@@ -26,6 +26,16 @@ object OsdText {
         ).joinToString("\n")
     }
 
+    /**
+     * The line over an interactive page's idle playlist that says to touch the screen, on a dark edge
+     * so it reads over any picture; null when there is none.
+     */
+    fun tapPrompt(state: ScreenState): String? {
+        val text = state.touchOpens?.idlePrompt ?: return null
+        val px = PROMPT_SIZE * MpvScene.RES_Y / PER_MILLE
+        return line(text, PROMPT_AT, PROMPT_SIZE, state.orientation, bold = true, edge = px / PROMPT_EDGE_DIVISOR)
+    }
+
     /** A dark sheet over everything with the screen's name on it, or null when not identifying. */
     fun identify(state: ScreenState): String? {
         val name = state.identify ?: return null
@@ -53,6 +63,8 @@ object OsdText {
         orientation: Orientation,
         bold: Boolean = false,
         alpha: String = "00",
+        /** A dark outline this thick around each letter; none when 0. */
+        edge: Int = 0,
     ): String {
         val centreX = MpvScene.RES_X / 2
         val centreY = MpvScene.RES_Y / 2
@@ -61,7 +73,8 @@ object OsdText {
         val y = centreY + ((at - HALF) * mountedHeight).toInt()
         val px = size * MpvScene.RES_Y / PER_MILLE
         val tags = "\\an5\\q2\\pos($centreX,$y)\\org($centreX,$centreY)\\frz${-orientation.clockwiseDegrees}" +
-            "\\fs$px\\b${if (bold) 1 else 0}\\bord0\\shad0\\1c&H$TEXT_COLOUR&\\1a&H$alpha&"
+            "\\fs$px\\b${if (bold) 1 else 0}\\bord$edge\\shad0\\1c&H$TEXT_COLOUR&\\1a&H$alpha&" +
+            if (edge > 0) "\\3c&H000000&\\3a&H$EDGE_ALPHA&" else ""
         return "{$tags}${escape(text)}"
     }
 
@@ -72,6 +85,10 @@ object OsdText {
     private const val TITLE_SIZE = 60
     private const val MESSAGE_SIZE = 35
     private const val IDENTIFY_SIZE = 120
+    private const val PROMPT_AT = 0.88
+    private const val PROMPT_SIZE = 55
+    private const val PROMPT_EDGE_DIVISOR = 8
+    private const val EDGE_ALPHA = "40"
     private const val PER_MILLE = 1000
 
     /** #e8eaed, as ASS writes colours: blue, green, red. */

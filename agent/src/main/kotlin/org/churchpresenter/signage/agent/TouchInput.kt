@@ -62,7 +62,7 @@ class TouchInput(
 
     private fun line(text: String) {
         val event = events.parse(text) ?: return
-        onActivity()
+        if (event is TouchEvent.Down) onActivity()
         val at = now()
         when (event) {
             is TouchEvent.Down -> hold.down(event.slot, upright(event.x, event.y), at)

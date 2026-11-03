@@ -1,6 +1,7 @@
 // The kiosk's own layer over every interactive page (KioskSession): an on-screen keyboard with no
 // suggestions and nothing learned, the "starting over" countdown, the PIN pad the corner gesture asks
-// for, and a note to the agent on each touch. Drawn in a closed shadow root so the page's styles
+// for, a note to the agent on each touch, and over an idle screen a cover that turns the first tap into
+// opening the interactive page. Drawn in a closed shadow root so the page's styles
 // cannot reach it, and built without innerHTML so pages that enforce Trusted Types allow it.
 (() => {
   if (window.__cpKiosk || window.top !== window) return;
@@ -25,7 +26,7 @@
     .kbtoggle { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; width: 72px; height: 72px;
                 max-width: none; border-radius: 36px; background: rgba(31, 31, 35, 0.85); padding: 0;
                 display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
-    .kbtoggle.hidden { display: none; }
+    .kbtoggle.hidden, .kbtoggle.idle { display: none; }
     .kbtoggle svg { width: 40px; height: 40px; fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
     .strip { position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647; display: none; padding: 18px;
              text-align: center; font-size: 26px; color: #fff; background: rgba(20, 20, 24, 0.92); }
@@ -37,6 +38,12 @@
     .dots { height: 56px; text-align: center; font-size: 40px; color: #fff; letter-spacing: 10px; }
     .note { text-align: center; color: #ddd; font-size: 22px; min-height: 28px; }
     .pad .row button { max-width: none; height: 72px; }
+    .cover { position: fixed; inset: 0; z-index: 2147483645; display: none; touch-action: none; }
+    .cover.open { display: block; }
+    .prompt { position: absolute; left: 50%; bottom: 6vh; transform: translateX(-50%); max-width: 90vw;
+              padding: 18px 36px; border-radius: 16px; background: rgba(20, 20, 24, 0.82); color: #fff;
+              font-size: 36px; font-weight: 600; text-align: center; }
+    .prompt:empty { display: none; }
   `;
   root.append(style);
 
@@ -230,7 +237,29 @@
     note.textContent = 'Wrong PIN';
   };
 
-  root.append(toggle, kb, strip, pin);
+  // ---- The idle screen's cover: its first tap opens the interactive page and does nothing here ----
+  const cover = make('div', 'cover');
+  const prompt = make('div', 'prompt');
+  cover.append(prompt);
+  let waking = false;
+  cover.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.isTrusted || waking) return;
+    waking = true;
+    send({ t: 'wake' });
+  });
+  ['mousedown', 'click', 'touchstart'].forEach((type) =>
+    cover.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); }));
+  const idleScreen = (on, text) => {
+    waking = false;
+    prompt.textContent = (on && text) || '';
+    cover.classList.toggle('open', on);
+    toggle.classList.toggle('idle', on);
+    if (on) hide();
+  };
+
+  root.append(cover, toggle, kb, strip, pin);
 
   // A mouse's pointer shows while the mouse moves, and goes on a touch, after it has stood still a
   // few seconds, and on every new page (with no mouse, cage's own pointer is blank: BlankCursor).
@@ -285,13 +314,16 @@
   new MutationObserver(attach).observe(document, { childList: true });
 
   // ---- Touches, and staying on one page ----
+  // Only a person's own press counts: a page scrolls, fills fields and fires events by itself (a
+  // redirect to an anchor, a carousel), and none of that may start the idle reset.
   let lastSent = 0;
-  const activity = () => {
+  const activity = (e) => {
+    if (!e.isTrusted) return;
     countdown(0);
     const now = Date.now();
     if (now - lastSent > 1000) { lastSent = now; send({ t: 'act' }); }
   };
-  ['pointerdown', 'keydown', 'input', 'scroll', 'touchstart'].forEach((type) =>
+  ['pointerdown', 'keydown', 'touchstart'].forEach((type) =>
     window.addEventListener(type, activity, { capture: true, passive: true }));
   // Pop-ups and new windows open in this one view, where the agent can still see where they go.
   window.open = (url) => { if (url) location.href = url; return null; };
@@ -300,6 +332,6 @@
     if (link) link.removeAttribute('target');
   }, true);
 
-  Object.defineProperty(window, '__cpKiosk', { value: Object.freeze({ countdown, pinPad, pinResult }) });
+  Object.defineProperty(window, '__cpKiosk', { value: Object.freeze({ countdown, pinPad, pinResult, idleScreen }) });
   send({ t: 'ready' });
 })();

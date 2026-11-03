@@ -40,6 +40,9 @@ class PlayerEngine(
     private var identifyUntil: Instant? = null
     private var restartToken = 0
 
+    /** An interactive page's idle playlist, which a touch leaves for the page. */
+    val idleScreen = IdleScreen()
+
     private val _state = MutableStateFlow(ScreenState(ScreenMode.IDLE))
     val state: StateFlow<ScreenState> = _state.asStateFlow()
 
@@ -146,6 +149,7 @@ class PlayerEngine(
         )
         val playlist = (decision.show as? Show.PlaylistShow)?.let { manifest.playlist(it.playlistId) }
         if (playlist == null || !Rotation.isRotation(playlist)) rotation.reset()
+        idleScreen.playlistOnScreen(playlist?.id)
         return when {
             decision.show == Show.Blank -> base.copy(mode = ScreenMode.BLANK)
             playlist == null -> base
@@ -154,11 +158,70 @@ class PlayerEngine(
                 base.copy(mode = ScreenMode.PLAYLIST, playlistId = playlist.id, items = listOf(step), stepped = true)
             }
             // canPlay() has checked each item can play, so none is dropped.
-            else -> base.copy(
-                mode = ScreenMode.PLAYLIST,
-                playlistId = playlist.id,
-                items = playlist.items.mapNotNull(items::screenItem),
+            else -> idleScreen.shown(
+                manifest,
+                base.copy(
+                    mode = ScreenMode.PLAYLIST,
+                    playlistId = playlist.id,
+                    items = playlist.items.mapNotNull(items::screenItem),
+                ),
+                now,
             )
+        }
+    }
+
+    /**
+     * An interactive page with an idle playlist plays that playlist until a touch opens it ([touched]),
+     * and again after its idle reset ([backToIdle]). The page itself shows when the idle playlist cannot
+     * play, is a rotation or itself interactive, or when no touch could leave it ([touchWakes]).
+     */
+    inner class IdleScreen {
+        /** The interactive playlist whose idle playlist is on screen, waiting for a touch; null otherwise. */
+        private var idleFor: String? = null
+
+        /** The interactive playlist a touch opened from its idle playlist, until its idle reset. */
+        private var wokenFor: String? = null
+
+        /** Whether a touch on the screen reaches the player ([TouchInput] runs). */
+        @Volatile
+        var touchWakes: Boolean = false
+
+        /** Someone touched the screen: an idle playlist on screen gives way to its page. */
+        fun touched() = synchronized(this@PlayerEngine) {
+            val waiting = idleFor ?: return
+            Log.info("The screen was touched: opening the interactive page over its idle playlist")
+            wokenFor = waiting
+            tick()
+        }
+
+        /** The page a touch opened has gone idle: its idle playlist comes back. */
+        fun backToIdle() = synchronized(this@PlayerEngine) {
+            if (wokenFor == null) return
+            wokenFor = null
+            tick()
+        }
+
+        internal fun playlistOnScreen(id: String?) {
+            if (id != wokenFor) wokenFor = null
+            idleFor = null
+        }
+
+        /** [shown] as the screen shows it, with the page's idle playlist in its place until a touch. */
+        internal fun shown(manifest: Manifest, shown: ScreenState, now: Instant): ScreenState {
+            val page = shown.kiosk ?: return shown
+            val pageList = shown.playlistId ?: return shown
+            val idle = page.idlePlaylistId?.takeIf { touchWakes && it != pageList }?.let(manifest::playlist)
+            val playable = idle != null && !Rotation.isRotation(idle) && idle.items.none { it.interactive } &&
+                items.canPlay(idle, now)
+            return when {
+                idle == null || !playable -> shown
+                wokenFor == pageList -> shown.copy(woken = true)
+                else -> {
+                    idleFor = pageList
+                    val idleItems = idle.items.mapNotNull(items::screenItem)
+                    shown.copy(playlistId = idle.id, items = idleItems, touchOpens = page)
+                }
+            }
         }
     }
 

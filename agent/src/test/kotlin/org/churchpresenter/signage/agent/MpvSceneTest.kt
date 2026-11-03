@@ -49,6 +49,7 @@ class MpvSceneTest {
                 "loadfile /store/v append",
                 "overlay 1 none",
                 "overlay 2 none",
+                "overlay 3 none",
             ),
             lines(MpvScene.commands(null, playlist, blank)),
         )

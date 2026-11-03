@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
@@ -34,6 +35,9 @@ import java.nio.file.Path
  *   short notice and goes back.
  * - It brings its own on-screen keyboard, with no suggestions and nothing learned, and the PIN pad
  *   the corner gesture asks for ([Pins]).
+ * - A page with an [ScreenItem.idleUrl] shows that page first, under a cover whose first tap opens the
+ *   interactive page; its idle reset starts over on the idle page. One opened from its idle playlist
+ *   ([ScreenState.woken]) hands the screen back to that playlist on its idle reset ([onIdle]).
  */
 class KioskSession(
     private val state: StateFlow<ScreenState>,
@@ -44,6 +48,11 @@ class KioskSession(
     private val onFailed: (url: String) -> Unit,
     private val pins: Pins,
     private val timing: Timing = Timing(),
+    /**
+     * A page opened from its idle playlist went idle: the playlist comes back
+     * ([PlayerEngine.IdleScreen.backToIdle]).
+     */
+    private val onIdle: () -> Unit = {},
 ) {
     /** Where the kiosk browser runs: [CageKiosk], or a fake in tests. */
     interface Browser {
@@ -69,10 +78,16 @@ class KioskSession(
         val retryMs: Long = RETRY_MS,
     )
 
-    private data class Wanted(val page: ScreenItem?, val orientation: Orientation, val restartToken: Int)
+    private data class Wanted(
+        val page: ScreenItem?,
+        val orientation: Orientation,
+        val restartToken: Int,
+        val woken: Boolean = false,
+    )
 
+    /** The page in the browser now, for [touched]; null while the kiosk does not have the screen. */
     @Volatile
-    private var idle: IdleTimer? = null
+    private var current: OnePage? = null
 
     /** The page on screen now, for [screenshot]; null while the kiosk does not have the screen. */
     @Volatile
@@ -86,7 +101,7 @@ class KioskSession(
 
     /** Someone touched the screen (from [TouchInput]): the page's idle time starts again. */
     fun touched() {
-        idle?.touched(timing.now())
+        current?.touched("a touch on the screen")
     }
 
     /**
@@ -104,15 +119,18 @@ class KioskSession(
     }
 
     private fun wantedOf(state: ScreenState): Wanted? =
-        if (state.kioskWanted) Wanted(state.kiosk, state.orientation, state.restartToken) else null
+        if (state.kioskWanted) Wanted(state.kiosk, state.orientation, state.restartToken, state.woken) else null
 
     /** Shows [wanted] until cancelled, starting it over after each idle reset or browser exit. */
     private suspend fun keepShowing(wanted: Wanted) {
         while (true) {
             try {
                 wipe()
-                browser.open(profileDir, wanted.orientation) { page -> drive(KioskPage(page), page, wanted.page) }
-                Log.info("Starting the interactive page over: nobody has touched it for a while")
+                browser.open(profileDir, wanted.orientation) { page -> OnePage(KioskPage(page), page, wanted).drive() }
+                if (wanted.woken) {
+                    onIdle()
+                    awaitCancellation()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -120,86 +138,137 @@ class KioskSession(
                 wanted.page?.url?.let(onFailed)
                 delay(timing.retryMs)
             } finally {
-                idle = null
+                current = null
                 showing = null
                 wipe()
             }
         }
     }
 
-    /** Runs one browser's page until it has gone idle (returns) or closed (throws). */
-    private suspend fun drive(kiosk: KioskPage, page: WebRenderer.Page, item: ScreenItem?) = coroutineScope {
-        val navigation = item?.url?.let { KioskNavigation(it, item.allowedHosts) }
-        kiosk.prepare(navigation)
-        showing = kiosk
-        val timer = IdleTimer(item?.idleResetMs ?: 0, startedAtMs = timing.now())
-        idle = timer.takeIf { item != null }
-        // Events first: the page's first request waits at Fetch until it is answered, and navigating
-        // waits for that request.
-        val closed = async { handleEvents(kiosk, page, timer, navigation) }
-        kiosk.open(item?.url ?: BLANK_PAGE)
-        // The PIN pad alone has nothing to clear: it closes with the prompt.
-        val expired = async { if (item != null) untilIdle(kiosk, timer) else awaitCancellation() }
-        launch { state.map { it.pinPrompt }.distinctUntilChanged().collect { kiosk.evaluate("pinPad($it)") } }
-        select {
-            expired.onAwait {}
-            closed.onAwait {}
-        }
-        coroutineContext.cancelChildren()
-    }
+    /**
+     * One browser's page, from its start to its idle reset: on its idle page ([idle]) until a tap there
+     * wakes it, then the interactive page.
+     */
+    private inner class OnePage(private val kiosk: KioskPage, private val page: WebRenderer.Page, wanted: Wanted) {
+        private val item = wanted.page
+        private val idleUrl = item?.idleUrl?.takeIf { !wanted.woken }
+        private val pageNavigation = item?.url?.let { KioskNavigation(it, item.allowedHosts) }
+        private val idleNavigation = idleUrl?.let { KioskNavigation(it, emptyList()) }
+        private val timer = IdleTimer(item?.idleResetMs ?: 0, startedAtMs = timing.now())
 
-    /** Shows the countdown over the page's last seconds, and returns once it has run out. */
-    private suspend fun untilIdle(kiosk: KioskPage, timer: IdleTimer) {
-        var shown = 0
-        while (true) {
-            val seconds = when (val now = timer.state(timing.now())) {
-                IdleTimer.State.Expired -> return
-                is IdleTimer.State.Counting -> now.secondsLeft
-                IdleTimer.State.Running -> 0
-            }
-            if (seconds != shown) {
-                kiosk.evaluate("countdown($seconds)")
-                shown = seconds
-            }
-            delay(timing.tickMs)
-        }
-    }
+        @Volatile
+        private var idle = idleUrl != null
 
-    /** Answers the page's messages and its requests to open pages, until it closes. */
-    private suspend fun handleEvents(
-        kiosk: KioskPage,
-        page: WebRenderer.Page,
-        timer: IdleTimer,
-        navigation: KioskNavigation?,
-    ) {
-        for (event in page.events) {
-            when (event.method) {
-                "Runtime.bindingCalled" -> if (event.params.string("name") == KioskPage.BINDING) {
-                    message(kiosk, timer, event.params.string("payload").orEmpty())
+        /** What first started the idle time, for the log. */
+        @Volatile
+        private var firstTouch: String? = null
+
+        init {
+            if (wanted.woken) touched("a touch on its idle playlist")
+        }
+
+        private val navigation get() = if (idle) idleNavigation else pageNavigation
+
+        /** Someone used the page: its idle time starts again. Nothing counts on the idle page. */
+        fun touched(what: String) {
+            if (idle || item == null) return
+            if (firstTouch == null) {
+                firstTouch = what
+                Log.info("The interactive page is in use ($what): it starts over after a while without a touch")
+            }
+            timer.touched(timing.now())
+        }
+
+        /** Runs until the page has gone idle (returns) or the browser closed (throws). */
+        suspend fun drive() = coroutineScope {
+            kiosk.prepare(navigation)
+            showing = kiosk
+            current = this@OnePage
+            // Events first: the page's first request waits at Fetch until it is answered, and navigating
+            // waits for that request.
+            val closed = async { handleEvents() }
+            kiosk.open(idleUrl ?: item?.url ?: BLANK_PAGE)
+            // The PIN pad alone has nothing to clear: it closes with the prompt.
+            val expired = async { if (item != null) untilIdle() else awaitCancellation() }
+            launch { state.map { it.pinPrompt }.distinctUntilChanged().collect { kiosk.evaluate("pinPad($it)") } }
+            select {
+                expired.onAwait { Log.info("Starting the interactive page over: ${resetReason()}") }
+                closed.onAwait {}
+            }
+            coroutineContext.cancelChildren()
+        }
+
+        /** A tap on the idle page: the interactive page opens in its place, its idle time started. */
+        private suspend fun wake() {
+            val url = item?.url
+            if (!idle || url == null) return
+            idle = false
+            touched("a tap on its idle page")
+            kiosk.evaluate("idleScreen(false)")
+            kiosk.open(url)
+        }
+
+        /** Why the page starts over, for the log: how long without a touch, what touched it first, where it was. */
+        private suspend fun resetReason(): String {
+            val seconds = (item?.idleResetMs ?: 0) / MS_PER_SECOND
+            val where = kiosk.location()?.let { " It was on $it." }.orEmpty()
+            return "no touch for $seconds s since it was put in use by ${firstTouch ?: "nothing"}.$where"
+        }
+
+        /** Shows the countdown over the page's last seconds, and returns once it has run out. */
+        private suspend fun untilIdle() {
+            var shown = 0
+            while (true) {
+                val seconds = when (val now = timer.state(timing.now())) {
+                    IdleTimer.State.Expired -> return
+                    is IdleTimer.State.Counting -> now.secondsLeft
+                    IdleTimer.State.Running -> 0
                 }
-                "Fetch.requestPaused" -> kiosk.request(event.params, navigation)
+                if (seconds != shown) {
+                    kiosk.evaluate("countdown($seconds)")
+                    shown = seconds
+                }
+                delay(timing.tickMs)
             }
         }
-        throw IOException("the browser closed")
-    }
 
-    private suspend fun message(kiosk: KioskPage, timer: IdleTimer, payload: String) {
-        val message = runCatching { SignageJson.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return
-        when (message.string("t")) {
-            "ready" -> kiosk.evaluate("pinPad(${state.value.pinPrompt})")
-            "act" -> timer.touched(timing.now())
-            "key" -> message.string("k")?.let { kiosk.key(it) }
-            "pin" -> kiosk.evaluate("pinResult(${pins.entered(message.string("v").orEmpty())})")
-            "pinCancel" -> pins.cancelled()
-            "cursor" -> {
-                val x = (message["x"] as? JsonPrimitive)?.doubleOrNull
-                val y = (message["y"] as? JsonPrimitive)?.doubleOrNull
-                if (x != null && y != null) mouseAt = x to y
-                val middleX = (message["cx"] as? JsonPrimitive)?.doubleOrNull
-                val middleY = (message["cy"] as? JsonPrimitive)?.doubleOrNull
-                val at = mouseAt ?: if (middleX != null && middleY != null) middleX to middleY else null
-                at?.let { (atX, atY) -> kiosk.refreshCursor(atX, atY) }
+        /** Answers the page's messages and its requests to open pages, until it closes. */
+        private suspend fun handleEvents() {
+            for (event in page.events) {
+                when (event.method) {
+                    "Runtime.bindingCalled" -> if (event.params.string("name") == KioskPage.BINDING) {
+                        message(event.params.string("payload").orEmpty())
+                    }
+                    "Fetch.requestPaused" -> kiosk.request(event.params, navigation)
+                }
             }
+            throw IOException("the browser closed")
+        }
+
+        private suspend fun message(payload: String) {
+            val message = runCatching { SignageJson.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return
+            when (message.string("t")) {
+                "ready" -> {
+                    kiosk.evaluate("pinPad(${state.value.pinPrompt})")
+                    if (idle) kiosk.evaluate("idleScreen(true, ${JsonPrimitive(item?.idlePrompt.orEmpty())})")
+                }
+                "act" -> touched("a press on the page")
+                "wake" -> wake()
+                "key" -> message.string("k")?.let { kiosk.key(it) }
+                "pin" -> kiosk.evaluate("pinResult(${pins.entered(message.string("v").orEmpty())})")
+                "pinCancel" -> pins.cancelled()
+                "cursor" -> cursor(message)
+            }
+        }
+
+        private suspend fun cursor(message: JsonObject) {
+            val x = (message["x"] as? JsonPrimitive)?.doubleOrNull
+            val y = (message["y"] as? JsonPrimitive)?.doubleOrNull
+            if (x != null && y != null) mouseAt = x to y
+            val middleX = (message["cx"] as? JsonPrimitive)?.doubleOrNull
+            val middleY = (message["cy"] as? JsonPrimitive)?.doubleOrNull
+            val at = mouseAt ?: if (middleX != null && middleY != null) middleX to middleY else null
+            at?.let { (atX, atY) -> kiosk.refreshCursor(atX, atY) }
         }
     }
 
@@ -210,6 +279,7 @@ class KioskSession(
     companion object {
         const val TICK_MS = 1_000L
         const val RETRY_MS = 5_000L
+        private const val MS_PER_SECOND = 1_000L
 
         /** What the PIN pad opens over when no interactive page is on screen. */
         const val BLANK_PAGE = "data:text/html,<html><body style=\"margin:0;background:#000\"></body></html>"
