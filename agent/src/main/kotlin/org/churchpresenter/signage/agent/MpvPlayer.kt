@@ -179,15 +179,28 @@ class MpvProcessLauncher(
         Runtime.getRuntime().addShutdownHook(Thread { running?.destroy() })
     }
 
+    /**
+     * mpv's output, line by line, until it exits. Stopping mpv closes the stream under the reader,
+     * which is how this ends, not an error.
+     */
+    private fun readOutput(process: Process) {
+        try {
+            process.inputReader().forEachLine { line ->
+                remember(line)
+                Log.warn("mpv: $line")
+            }
+        } catch (_: IOException) {
+            // The stream closed with mpv.
+        }
+    }
+
     override fun start(): MpvPlayer.Session {
         if (!windows) ipcPath.deleteIfExists()
         val process = ProcessBuilder(listOf(executable) + baseArgs(ipcPath) + versionArgs + extraArgs)
             .redirectErrorStream(true)
             .start()
         running = process
-        Thread({ process.inputReader().forEachLine { line -> remember(line); Log.warn("mpv: $line") } }, "mpv-output")
-            .apply { isDaemon = true }
-            .start()
+        Thread({ readOutput(process) }, "mpv-output").apply { isDaemon = true }.start()
         val ipc = try {
             connect(process)
         } catch (e: IOException) {
