@@ -87,7 +87,14 @@ class WebRenderer(
 
     data class Event(val method: String, val params: JsonObject)
 
-    private data class Wanted(val url: String, val refreshMs: Long?, val width: Int, val height: Int, val fps: Int)
+    private data class Wanted(
+        val url: String,
+        val refreshMs: Long?,
+        val width: Int,
+        val height: Int,
+        val fps: Int,
+        val code: PageCode? = null,
+    )
 
     /** The stream mpv plays for the page at [url]. */
     fun streamUrl(url: String): String = "http://127.0.0.1:${server.port}${MjpegServer.PATH_PREFIX}${key(url)}"
@@ -109,7 +116,10 @@ class WebRenderer(
         val (width, height) = if (upright) panelHeight to panelWidth else panelWidth to panelHeight
         // An interactive page is shown by the kiosk browser, not drawn here.
         return state.items.filter { it.kind == MediaKind.WEB && it.url != null && !it.interactive }
-            .map { Wanted(it.url.orEmpty(), it.refreshMs, width, height, it.maxFps ?: PlaylistItem.DEFAULT_WEB_FPS) }
+            .map {
+                val fps = it.maxFps ?: PlaylistItem.DEFAULT_WEB_FPS
+                Wanted(it.url.orEmpty(), it.refreshMs, width, height, fps, it.pageCode)
+            }
             .toSet()
     }
 
@@ -162,6 +172,8 @@ class WebRenderer(
                 put("mobile", false)
             },
         )
+        // Before the first load, so the church's own style is there from the page's first picture.
+        page.addPageCode(wanted.code)
         var loaded = CompletableDeferred<Unit>()
         val pacer = FramePacer(wanted.fps)
         launch {

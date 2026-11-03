@@ -156,6 +156,9 @@ class KioskSession(
         private val idleNavigation = idleUrl?.let { KioskNavigation(it, emptyList()) }
         private val timer = IdleTimer(item?.idleResetMs ?: 0, startedAtMs = timing.now())
 
+        /** The church's own CSS and JavaScript for the page: added once the idle page is left, not to it. */
+        private val code = item?.pageCode
+
         @Volatile
         private var idle = idleUrl != null
 
@@ -187,6 +190,7 @@ class KioskSession(
             // Events first: the page's first request waits at Fetch until it is answered, and navigating
             // waits for that request.
             val closed = async { handleEvents() }
+            if (!idle) page.addPageCode(code)
             kiosk.open(idleUrl ?: item?.url ?: BLANK_PAGE)
             // The PIN pad alone has nothing to clear: it closes with the prompt.
             val expired = async { if (item != null) untilIdle() else awaitCancellation() }
@@ -205,6 +209,7 @@ class KioskSession(
             idle = false
             touched("a tap on its idle page")
             kiosk.evaluate("idleScreen(false)")
+            page.addPageCode(code)
             kiosk.open(url)
         }
 

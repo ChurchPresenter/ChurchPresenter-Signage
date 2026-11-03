@@ -53,7 +53,7 @@ The player's first message is `hello`. Then:
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `power`, `tv`, `system_update`,
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `power`, `tv`, `system_update`,
 `web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
@@ -121,6 +121,13 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     it. `idlePrompt` is a line written over it ("Tap to sign up"), none when left out.
     ChurchPresenter sends these only to players listing `idle_screen`, and leaves all three out
     when unset.
+  - A `web` item may carry the church's own `pageCss` and `pageScript`, to restyle a site it does
+    not own (hide its menu, point its Home link back at the page). On every page the item shows, in
+    the top frame only, the CSS goes in after the site's own as a constructed style sheet (which the
+    site's Content-Security-Policy does not block), and the script runs once the document is parsed;
+    an error in it goes to the page's console and nothing else. An interactive page gets them once
+    its `idleUrl` is left, never on the idle page. ChurchPresenter sends them only to players listing
+    `page_code`, and leaves them out when unset; an older player shows the page as its site made it.
 - `screen.kioskPinHash`, when set, is what the screen's switch gesture (a finger held in the
   top-left corner for 5 s) asks for before it switches between the playlist and an interactive page:
   `pbkdf2:<iterations>:<salt hex>:<hash hex>` of a 4- to 8-digit PIN (`KioskPin` in `:core`). It is

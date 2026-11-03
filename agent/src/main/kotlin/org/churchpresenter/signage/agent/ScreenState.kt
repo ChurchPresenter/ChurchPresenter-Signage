@@ -77,6 +77,8 @@ data class ScreenItem(
     val idleUrl: String? = null,
     /** The line written over the idle playlist or page, so people know to touch it; none when null. */
     val idlePrompt: String? = null,
+    /** The church's own CSS and JavaScript for a web page's pages; null when it has none. */
+    val pageCode: PageCode? = null,
 ) {
     companion object {
         const val DEFAULT_PICTURE_MS = 8_000L
