@@ -148,6 +148,19 @@ class WebRendererTest {
     }
 
     @Test
+    fun theChurchsOwnCodeIsGivenToThePageBeforeItLoads() = runBlocking {
+        val fake = FakePage()
+        val styled = page("https://example.org").copy(pageCode = PageCode("header { display: none }", "go()"))
+        val job = async { renderer(FakeBrowser(fake)).run(state(styled)) }
+        withTimeout(WAIT_MS) { fake.screencast.await() }
+        val methods = fake.calls.map { it.first }
+        val added = methods.withIndex().filter { it.value == "Page.addScriptToEvaluateOnNewDocument" }.map { it.index }
+        assertEquals(2, added.size)
+        assertTrue(added.all { it < methods.indexOf("Page.navigate") })
+        job.cancel()
+    }
+
+    @Test
     fun aPageReloadsEveryRefresh() = runBlocking {
         val fake = FakePage()
         val job = async { renderer(FakeBrowser(fake)).run(state(page("https://example.org", refreshMs = 10))) }

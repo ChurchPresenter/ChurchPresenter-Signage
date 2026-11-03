@@ -204,6 +204,42 @@ class KioskSessionTest {
     }
 
     @Test
+    fun thePagesOwnCodeIsAddedBeforeItOpens() = runBlocking<Unit> {
+        val browser = FakeBrowser()
+        start(browser, state = kioskState(page.copy(pageCode = PageCode("nav { display: none }", null))))
+        val fake = browser.next()
+        // The kiosk's own script first, then the church's.
+        fake.await("Page.addScriptToEvaluateOnNewDocument")
+        val css = fake.await("Page.addScriptToEvaluateOnNewDocument")["source"]!!.jsonPrimitive.content
+        assertTrue("nav { display: none }" in css)
+        assertEquals(page.url, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun anIdlePageIsLeftAsItsSiteMadeIt() = runBlocking<Unit> {
+        val browser = FakeBrowser()
+        val idle = page.copy(idleUrl = "https://welcome.example.org", pageCode = PageCode(null, "go()"))
+        start(browser, state = kioskState(idle))
+        val fake = browser.next()
+        fake.await("Page.addScriptToEvaluateOnNewDocument")
+        val first = mutableListOf<String>()
+        withTimeout(WAIT_MS) {
+            while (true) {
+                val (name, params) = fake.sent.receive()
+                if (name == "Page.navigate") {
+                    assertEquals("https://welcome.example.org", params["url"]!!.jsonPrimitive.content)
+                    break
+                }
+                first += name
+            }
+        }
+        assertFalse("Page.addScriptToEvaluateOnNewDocument" in first)
+        fake.binding("""{"t":"wake"}""")
+        assertTrue("go()" in fake.await("Page.addScriptToEvaluateOnNewDocument")["source"]!!.jsonPrimitive.content)
+        assertEquals(page.url, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun theKeyboardsKeysAreTyped() = runBlocking<Unit> {
         val browser = FakeBrowser()
         start(browser)

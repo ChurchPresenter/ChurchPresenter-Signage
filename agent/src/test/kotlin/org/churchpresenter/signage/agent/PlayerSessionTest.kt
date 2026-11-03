@@ -172,7 +172,9 @@ class PlayerSessionTest {
         val basic = sessionWith(webTest = test).hello().features
         assertEquals(listOf(Features.WIPE, Features.STREAM, Features.ROTATION), basic)
         assertEquals(
-            listOf(Features.WIPE, Features.STREAM, Features.ROTATION, Features.WEB, Features.WEB_TEST),
+            listOf(
+                Features.WIPE, Features.STREAM, Features.ROTATION, Features.WEB, Features.PAGE_CODE, Features.WEB_TEST,
+            ),
             sessionWith(web = true, webTest = test, background = backgroundScope).hello().features,
         )
     }

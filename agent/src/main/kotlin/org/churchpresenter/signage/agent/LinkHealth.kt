@@ -71,6 +71,7 @@ class PlayableItems(
                 idlePlaylistId = item.idlePlaylistId?.takeIf { item.interactive },
                 idleUrl = item.idleUrl?.takeIf { item.interactive && it.isNotBlank() },
                 idlePrompt = item.idlePrompt?.trim()?.takeIf { item.interactive && it.isNotEmpty() },
+                pageCode = PageCode.of(item.pageCss, item.pageScript).takeIf { item.kind == MediaKind.WEB },
             )
         }
     } else {
