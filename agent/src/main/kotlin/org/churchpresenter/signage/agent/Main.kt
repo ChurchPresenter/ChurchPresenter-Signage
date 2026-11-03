@@ -108,7 +108,9 @@ fun main(args: Array<String>) {
     runBlocking(Dispatchers.IO) {
         launch { engine.probeCec().also { Log.info("CEC: ${engine.cecState}") } }
         launch { engine.run() }
-        launch { ServerConnection(client, store, MdnsServerLocator(), session) { address = it }.run() }
+        val connection = ServerConnection(client, store, MdnsServerLocator(), session) { address = it }
+        launch { connection.run() }
+        launch { NudgeListener(ownerId = { store.identity().ownerId }, onNudge = connection::nudged).run() }
         launch { player.run() }
         web?.let { launch { it.renderer.run(engine.state) } }
         kiosk?.let { launch { it.run() } }
