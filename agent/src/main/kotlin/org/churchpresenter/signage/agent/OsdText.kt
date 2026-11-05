@@ -71,6 +71,26 @@ object OsdText {
             "b $k $height 0 ${height - k} 0 $bottom l 0 $r b 0 $k $k 0 $r 0"
     }
 
+    /**
+     * ChurchPresenter's message: in a dark band across the top of the mounted screen over what plays,
+     * or on a sheet that hides it; null when there is none.
+     */
+    fun notice(state: ScreenState): String? {
+        val notice = state.notice ?: return null
+        val sideways = state.orientation == Orientation.PORTRAIT || state.orientation == Orientation.PORTRAIT_FLIPPED
+        val width = if (sideways) MpvScene.RES_Y else MpvScene.RES_X
+        val height = if (sideways) MpvScene.RES_X else MpvScene.RES_Y
+        val band = if (notice.fullScreen) height else (height * BAND_HEIGHT).toInt()
+        val left = (MpvScene.RES_X - width) / 2
+        val top = (MpvScene.RES_Y - height) / 2
+        val turn = "\\org(${MpvScene.RES_X / 2},${MpvScene.RES_Y / 2})\\frz${-state.orientation.clockwiseDegrees}"
+        val sheet = "{\\an7\\pos($left,$top)$turn\\p1\\bord0\\shad0\\1c&H000000&" +
+            "\\1a&H${if (notice.fullScreen) FULL_ALPHA else BAND_ALPHA}&}m 0 0 l $width 0 $width $band 0 $band{\\p0}"
+        val at = if (notice.fullScreen) HALF else BAND_HEIGHT / 2
+        val size = if (notice.fullScreen) NOTICE_FULL_SIZE else NOTICE_BAND_SIZE
+        return sheet + "\n" + line(notice.text, at, size, state.orientation, bold = true, wrap = true)
+    }
+
     /** A dark sheet over everything with the screen's name on it, or null when not identifying. */
     fun identify(state: ScreenState): String? {
         val name = state.identify ?: return null
@@ -98,6 +118,8 @@ object OsdText {
         orientation: Orientation,
         bold: Boolean = false,
         alpha: String = "00",
+        /** Broken into lines that fit, rather than kept on one. */
+        wrap: Boolean = false,
     ): String {
         val centreX = MpvScene.RES_X / 2
         val centreY = MpvScene.RES_Y / 2
@@ -105,7 +127,8 @@ object OsdText {
         val mountedHeight = if (sideways) MpvScene.RES_X else MpvScene.RES_Y
         val y = centreY + ((at - HALF) * mountedHeight).toInt()
         val px = size * MpvScene.RES_Y / PER_MILLE
-        val tags = "\\an5\\q2\\pos($centreX,$y)\\org($centreX,$centreY)\\frz${-orientation.clockwiseDegrees}" +
+        val tags = "\\an5\\q${if (wrap) 0 else 2}\\pos($centreX,$y)" +
+            "\\org($centreX,$centreY)\\frz${-orientation.clockwiseDegrees}" +
             "\\fs$px\\b${if (bold) 1 else 0}\\bord0\\shad0\\1c&H$TEXT_COLOUR&\\1a&H$alpha&"
         return "{$tags}${escape(text)}"
     }
@@ -130,6 +153,11 @@ object OsdText {
     private const val BOX_COLOUR = "181414"
     private const val BOX_ALPHA = "2E"
     private const val PER_MILLE = 1000
+    private const val BAND_HEIGHT = 0.14
+    private const val NOTICE_BAND_SIZE = 50
+    private const val NOTICE_FULL_SIZE = 80
+    private const val BAND_ALPHA = "1A"
+    private const val FULL_ALPHA = "00"
 
     /** #e8eaed, as ASS writes colours: blue, green, red. */
     private const val TEXT_COLOUR = "EDEAE8"

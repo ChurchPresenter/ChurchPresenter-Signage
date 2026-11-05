@@ -2,6 +2,7 @@ package org.churchpresenter.signage.agent
 
 import org.churchpresenter.signage.core.MediaKind
 import org.churchpresenter.signage.core.Orientation
+import org.churchpresenter.signage.core.ScreenMessage
 import org.churchpresenter.signage.core.PlaylistItem
 import java.nio.file.Path
 
@@ -15,6 +16,8 @@ data class ScreenState(
     val idleLogo: Path? = null,
     /** A line under the idle card, e.g. the pairing code while waiting for approval. */
     val message: String? = null,
+    /** ChurchPresenter's message, written over whatever shows; none when null. */
+    val notice: ScreenMessage? = null,
     /** The screen's name, shown full screen while someone identifies it. */
     val identify: String? = null,
     /** Bumped by a refresh request; the player restarts mpv when it changes. */

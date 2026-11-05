@@ -44,6 +44,13 @@
               padding: 18px 36px; border-radius: 999px; background: rgba(20, 20, 24, 0.82); color: #fff;
               font-size: 36px; font-weight: 600; text-align: center; }
     .prompt:empty { display: none; }
+    .notice { position: fixed; left: 0; right: 0; top: 0; z-index: 2147483646; display: none; pointer-events: none;
+              padding: 3vh 4vw; background: rgba(0, 0, 0, 0.9); color: #fff; font-size: 4.6vh; font-weight: 600;
+              text-align: center; overflow-wrap: anywhere; }
+    .notice.open { display: block; }
+    .notice.full { bottom: 0; display: none; align-items: center; justify-content: center; font-size: 7.4vh;
+                   background: #000; pointer-events: auto; touch-action: none; }
+    .notice.full.open { display: flex; }
   `;
   root.append(style);
 
@@ -259,7 +266,17 @@
     if (on) hide();
   };
 
-  root.append(cover, toggle, kb, strip, pin);
+  // ---- ChurchPresenter's message: a band across the top, or the whole screen ----
+  const notice = make('div', 'notice');
+  ['pointerdown', 'mousedown', 'click', 'touchstart'].forEach((type) =>
+    notice.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); }));
+  const showNotice = (text, full) => {
+    notice.textContent = text || '';
+    notice.classList.toggle('full', !!full);
+    notice.classList.toggle('open', !!text);
+  };
+
+  root.append(cover, toggle, kb, strip, pin, notice);
 
   // A mouse's pointer shows while the mouse moves, and goes on a touch, after it has stood still a
   // few seconds, and on every new page (with no mouse, cage's own pointer is blank: BlankCursor).
@@ -332,6 +349,6 @@
     if (link) link.removeAttribute('target');
   }, true);
 
-  Object.defineProperty(window, '__cpKiosk', { value: Object.freeze({ countdown, pinPad, pinResult, idleScreen }) });
+  Object.defineProperty(window, '__cpKiosk', { value: Object.freeze({ countdown, pinPad, pinResult, idleScreen, notice: showNotice }) });
   send({ t: 'ready' });
 })();

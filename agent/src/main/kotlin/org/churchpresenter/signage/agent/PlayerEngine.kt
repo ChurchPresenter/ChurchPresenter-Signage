@@ -144,6 +144,7 @@ class PlayerEngine(
             idleTitle = manifest.idleCard.title,
             idleLogo = manifest.idleCard.logoSha256?.let(store.files::path),
             message = message,
+            notice = manifest.screen.message?.takeIf { it.showsAt(now.toEpochMilli()) },
             identify = identifying,
             restartToken = restartToken,
         )

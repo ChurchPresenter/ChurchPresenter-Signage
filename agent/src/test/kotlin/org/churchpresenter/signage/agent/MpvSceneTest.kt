@@ -50,6 +50,7 @@ class MpvSceneTest {
                 "overlay 1 none",
                 "overlay 2 none",
                 "overlay 3 none",
+                "overlay 4 none",
             ),
             lines(MpvScene.commands(null, playlist, blank)),
         )

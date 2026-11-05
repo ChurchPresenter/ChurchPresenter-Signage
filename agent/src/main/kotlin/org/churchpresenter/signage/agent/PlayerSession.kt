@@ -61,6 +61,7 @@ class PlayerSession(
         Features.WIPE,
         Features.STREAM,
         Features.ROTATION,
+        Features.MESSAGE,
         Features.WEB.takeIf { web },
         Features.INTERACTIVE.takeIf { interactive },
         Features.IDLE_SCREEN.takeIf { interactive },
