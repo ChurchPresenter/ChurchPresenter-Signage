@@ -335,6 +335,9 @@ internal fun reloadOf(item: ScreenItem?, idleUrl: String?, idle: Boolean, touche
     return Reload(every, url)
 }
 
-/** The kiosk script's call that shows [message] over the page, or takes it away when null. */
+/**
+ * The kiosk script's call that shows [message] over the page, or takes it away when null; the last
+ * argument says whether it keeps touches from the page.
+ */
 internal fun noticeCall(message: ScreenMessage?): String =
-    "notice(${JsonPrimitive(message?.text.orEmpty())}, ${message?.fullScreen == true})"
+    "notice(${JsonPrimitive(message?.text.orEmpty())}, ${message?.fullScreen == true}, ${message?.blocksTouch == true})"

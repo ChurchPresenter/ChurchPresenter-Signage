@@ -79,7 +79,7 @@ class ScreenNoticeTest {
     @Test
     fun aTouchPageIsToldTheMessageAsAScriptCall() {
         val quoted = ScreenMessage("Doors \"open\"", fullScreen = true)
-        assertEquals("notice(\"Doors \\\"open\\\"\", true)", noticeCall(quoted))
-        assertEquals("notice(\"\", false)", noticeCall(null))
+        assertEquals("notice(\"Doors \\\"open\\\"\", true, true)", noticeCall(quoted))
+        assertEquals("notice(\"\", false, false)", noticeCall(null))
     }
 }
