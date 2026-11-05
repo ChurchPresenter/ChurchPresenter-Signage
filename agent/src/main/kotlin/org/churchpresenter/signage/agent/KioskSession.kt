@@ -21,6 +21,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import org.churchpresenter.signage.core.Orientation
+import org.churchpresenter.signage.core.ScreenMessage
 import org.churchpresenter.signage.core.SignageJson
 import java.io.IOException
 import java.nio.file.Path
@@ -206,6 +207,7 @@ class KioskSession(
             // The PIN pad alone has nothing to clear: it closes with the prompt.
             val expired = async { if (item != null) untilIdle() else awaitCancellation() }
             launch { state.map { it.pinPrompt }.distinctUntilChanged().collect { kiosk.evaluate("pinPad($it)") } }
+            launch { state.map { it.notice }.distinctUntilChanged().collect { kiosk.evaluate(noticeCall(it)) } }
             launch { wakes.consumeEach { wake() } }
             launch { reloadWhileUnused() }
             select {
@@ -282,6 +284,7 @@ class KioskSession(
             when (message.string("t")) {
                 "ready" -> {
                     kiosk.evaluate("pinPad(${state.value.pinPrompt})")
+                    kiosk.evaluate(noticeCall(state.value.notice))
                     if (idle) kiosk.evaluate("idleScreen(true, ${JsonPrimitive(item?.idlePrompt.orEmpty())})")
                 }
                 "act" -> touched("a press on the page")
@@ -331,3 +334,7 @@ internal fun reloadOf(item: ScreenItem?, idleUrl: String?, idle: Boolean, touche
     val url = (if (idle) idleUrl else item.url) ?: return null
     return Reload(every, url)
 }
+
+/** The kiosk script's call that shows [message] over the page, or takes it away when null. */
+internal fun noticeCall(message: ScreenMessage?): String =
+    "notice(${JsonPrimitive(message?.text.orEmpty())}, ${message?.fullScreen == true})"

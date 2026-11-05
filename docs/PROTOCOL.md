@@ -53,7 +53,7 @@ The player's first message is `hello`. Then:
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `touch_reload`, `power`, `tv`, `system_update`,
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `touch_reload`, `message`, `power`, `tv`, `system_update`,
 `web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
@@ -133,6 +133,12 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     an error in it goes to the page's console and nothing else. An interactive page gets them once
     its `idleUrl` is left, never on the idle page. ChurchPresenter sends them only to players listing
     `page_code`, and leaves them out when unset; an older player shows the page as its site made it.
+- `screen.message`, when set, is a message from the Signage tab written over whatever the screen shows:
+  `text`, in a dark band across the top of the screen as mounted (what plays goes on under it), or with
+  `fullScreen` on a black sheet in place of it, until `untilMs` (epoch milliseconds) or, when that is
+  left out, until it is cleared. It shows over a touch page too, where a full-screen one also takes
+  the touches. The player keeps it with the manifest, so it holds while ChurchPresenter is away, and
+  drops it once `untilMs` has passed. ChurchPresenter sends it only to players listing `message`.
 - `screen.kioskPinHash`, when set, is what the screen's switch gesture (a finger held in the
   top-left corner for 5 s) asks for before it switches between the playlist and an interactive page:
   `pbkdf2:<iterations>:<salt hex>:<hash hex>` of a 4- to 8-digit PIN (`KioskPin` in `:core`). It is
