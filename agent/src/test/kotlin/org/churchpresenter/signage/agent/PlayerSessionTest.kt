@@ -1,7 +1,9 @@
 package org.churchpresenter.signage.agent
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.churchpresenter.signage.core.Features
 import org.churchpresenter.signage.core.OverrideAction
 import org.churchpresenter.signage.core.PROTOCOL_VERSION
@@ -13,6 +15,7 @@ import org.churchpresenter.signage.core.UpdateState
 import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createDirectories
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
@@ -164,6 +167,30 @@ class PlayerSessionTest {
         assertEquals(SessionNext.STAY, withPreview.handle(ServerMessage.PreviewRequest(maxWidth = 320)))
         val preview = withPreview.outgoing.tryReceive().getOrNull() as PlayerMessage.Preview
         assertEquals(320, preview.width)
+    }
+
+    @Test
+    fun aScreenshotThatNeverComesDoesNotHoldUpTheConnection() = runTest {
+        val screen = PreviewMaker.jpeg(BufferedImage(960, 540, BufferedImage.TYPE_INT_RGB))
+        val release = CompletableDeferred<Unit>()
+        val shots = AtomicInteger()
+        val shoot: suspend (Path) -> Boolean = { file ->
+            shots.incrementAndGet()
+            release.await()
+            file.writeBytes(screen)
+            true
+        }
+        val maker = PreviewMaker(shoot, root)
+        val waiting = sessionWith(previews = maker, background = backgroundScope)
+
+        assertEquals(SessionNext.STAY, waiting.handle(ServerMessage.PreviewRequest(maxWidth = 320)))
+        while (shots.get() == 0) yield()
+        // A second request while the first is still waiting is not queued behind it.
+        assertEquals(SessionNext.STAY, waiting.handle(ServerMessage.PreviewRequest(maxWidth = 320)))
+        assertEquals(1, shots.get())
+
+        release.complete(Unit)
+        assertEquals(320, (waiting.outgoing.receive() as PlayerMessage.Preview).width)
     }
 
     @Test
