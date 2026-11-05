@@ -9,7 +9,9 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.churchpresenter.signage.core.PlayerMessage
@@ -78,7 +80,10 @@ class ServerConnection(
             try {
                 return connect(address, trusted)
             } catch (e: CancellationException) {
-                throw e
+                // Only this loop being stopped ends it. The socket cancelling itself (a ping that
+                // got no answer) is a connection that ended, and is tried again like any other.
+                currentCoroutineContext().ensureActive()
+                Log.info("Connection to $address ended: ${e.message}")
             } catch (e: IOException) {
                 Log.info("ChurchPresenter not reachable at $address: ${e.message}")
             } catch (e: IllegalStateException) {

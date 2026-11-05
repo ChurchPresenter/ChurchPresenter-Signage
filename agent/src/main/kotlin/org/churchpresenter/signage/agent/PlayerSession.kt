@@ -51,6 +51,7 @@ class PlayerSession(
     private val systemUpdates: () -> Int? = { null },
 ) {
     private val testing = AtomicBoolean(false)
+    private val previewing = AtomicBoolean(false)
 
     /** Messages for ChurchPresenter that are not answers to its own: previews and update progress. */
     val outgoing = Channel<PlayerMessage>(OUTGOING_CAPACITY, BufferOverflow.DROP_OLDEST)
@@ -163,7 +164,7 @@ class PlayerSession(
             SessionNext.STAY
         }
         is ServerMessage.PreviewRequest -> {
-            previews?.make(message.maxWidth)?.let { outgoing.trySend(it) }
+            preview(message.maxWidth)
             SessionNext.STAY
         }
         is ServerMessage.WebTest -> {
@@ -189,6 +190,28 @@ class PlayerSession(
                 background.launch { run.install(message) }
             }
             SessionNext.STAY
+        }
+    }
+
+    /**
+     * Answers a preview request off the connection, one at a time: a screenshot that never comes must
+     * not stop this player reading what ChurchPresenter sends. Without a background scope (in tests) it
+     * is answered in place.
+     */
+    private suspend fun preview(maxWidth: Int) {
+        val maker = previews ?: return
+        val scope = background
+        if (scope == null) {
+            maker.make(maxWidth)?.let { outgoing.trySend(it) }
+            return
+        }
+        if (!previewing.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                maker.make(maxWidth)?.let { outgoing.trySend(it) }
+            } finally {
+                previewing.set(false)
+            }
         }
     }
 

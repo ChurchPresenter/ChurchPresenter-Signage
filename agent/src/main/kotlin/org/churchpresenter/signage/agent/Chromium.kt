@@ -12,11 +12,15 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -168,14 +172,26 @@ class Chromium(
         throw IOException("Chromium did not open DevTools")
     }
 
-    /** One page's DevTools socket: calls answered by id, and everything else as events. Also the kiosk's. */
-    internal class DevToolsPage(private val socket: DefaultClientWebSocketSession) : WebRenderer.Page {
+    /**
+     * One page's DevTools socket: calls answered by id, and everything else as events. Also the kiosk's.
+     * A call Chromium does not answer within [answerTimeoutMs] fails, as does one made once the page is
+     * gone: a screenshot of a page that draws no frames is never answered, and must not hang its caller.
+     */
+    internal class DevToolsPage(
+        private val incoming: ReceiveChannel<Frame>,
+        private val outgoing: SendChannel<Frame>,
+        private val answerTimeoutMs: Long = ANSWER_TIMEOUT_MS,
+    ) : WebRenderer.Page {
+        constructor(socket: DefaultClientWebSocketSession) : this(socket.incoming, socket.outgoing)
+
         private val ids = AtomicInteger(1)
         private val waiting = ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>()
+
+        @Volatile private var closed: IOException? = null
         override val events = Channel<WebRenderer.Event>(Channel.UNLIMITED)
 
         suspend fun readLoop() {
-            for (frame in socket.incoming) {
+            for (frame in incoming) {
                 val message = (frame as? Frame.Text)
                     ?.let { runCatching { SignageJson.parseToJsonElement(it.readText()).jsonObject }.getOrNull() }
                 val id = message?.get("id")?.jsonPrimitive?.intOrNull
@@ -185,23 +201,32 @@ class Chromium(
                     method != null -> events.send(WebRenderer.Event(method, message.params()))
                 }
             }
-            val closed = IOException("Chromium closed the page")
-            events.close(closed)
-            waiting.values.forEach { it.completeExceptionally(closed) }
+            val gone = IOException("Chromium closed the page")
+            closed = gone
+            events.close(gone)
+            waiting.values.forEach { it.completeExceptionally(gone) }
         }
 
         override suspend fun call(method: String, params: JsonObject): JsonObject {
             val answer = CompletableDeferred<JsonObject>()
             val id = ids.getAndIncrement()
             waiting[id] = answer
-            socket.send(Frame.Text(request(id, method, params)))
-            val message = answer.await()
+            closed?.let { answer.completeExceptionally(it) }
+            val message = try {
+                outgoing.send(Frame.Text(request(id, method, params)))
+                withTimeoutOrNull(answerTimeoutMs) { answer.await() }
+                    ?: throw IOException("$method: no answer from Chromium in ${answerTimeoutMs / MS_PER_SECOND} s")
+            } catch (e: ClosedSendChannelException) {
+                throw IOException("$method: Chromium closed the page", e)
+            } finally {
+                waiting.remove(id)
+            }
             message["error"]?.let { throw IOException("$method: ${it.jsonObject.string("message")}") }
             return message["result"]?.jsonObject ?: JsonObject(emptyMap())
         }
 
         override suspend fun send(method: String, params: JsonObject) {
-            socket.send(Frame.Text(request(ids.getAndIncrement(), method, params)))
+            outgoing.send(Frame.Text(request(ids.getAndIncrement(), method, params)))
         }
 
         private fun request(id: Int, method: String, params: JsonObject): String = buildJsonObject {
@@ -214,6 +239,10 @@ class Chromium(
     companion object {
         private val NAMES = listOf("chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "msedge")
         private const val START_TIMEOUT_MS = 15_000L
+
+        /** How long a DevTools call waits for Chromium's answer. */
+        const val ANSWER_TIMEOUT_MS = 10_000L
+        private const val MS_PER_SECOND = 1_000L
         private const val START_POLL_MS = 100L
 
         /** The browser's window; each page is sized to the screen with device metrics. */
