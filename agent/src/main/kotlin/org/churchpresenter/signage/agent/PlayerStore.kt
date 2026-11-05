@@ -24,7 +24,11 @@ data class StoredManifest(val version: String, val manifest: Manifest)
  * ```
  * Every JSON write goes through [AtomicFiles].
  */
-class PlayerStore(private val root: Path) {
+class PlayerStore(
+    private val root: Path,
+    /** The bytes free where [root] is; the disk's own figure, a test's in tests. */
+    private val usable: (Path) -> Long = { Files.getFileStore(it).usableSpace },
+) {
     val files = ContentFiles(root.resolve("files"))
     private val identityFile = root.resolve("identity.json")
     private val manifestFile = root.resolve("manifest.json")
@@ -87,5 +91,5 @@ class PlayerStore(private val root: Path) {
         address?.let { saveIdentity(identity().copy(fixedAddress = it)) }
     }
 
-    fun freeBytes(): Long = Files.getFileStore(root).usableSpace
+    fun freeBytes(): Long = usable(root)
 }

@@ -27,13 +27,48 @@ object OsdText {
     }
 
     /**
-     * The line over an interactive page's idle playlist that says to touch the screen, on a dark edge
+     * The line over an interactive page's idle playlist that says to touch the screen, on a dark box
      * so it reads over any picture; null when there is none.
      */
     fun tapPrompt(state: ScreenState): String? {
         val text = state.touchOpens?.idlePrompt ?: return null
         val px = PROMPT_SIZE * MpvScene.RES_Y / PER_MILLE
-        return line(text, PROMPT_AT, PROMPT_SIZE, state.orientation, bold = true, edge = px / PROMPT_EDGE_DIVISOR)
+        return promptBox(text.length, px, state.orientation) + "\n" +
+            line(text, PROMPT_AT, PROMPT_SIZE, state.orientation, bold = true)
+    }
+
+    /**
+     * The dark pill under the tap prompt, as a touch page's own prompt has: wide enough for
+     * [chars] letters of [px] (a guess from the letters' average width, at most most of the screen's
+     * width), centred where the prompt is and turned with it.
+     */
+    private fun promptBox(chars: Int, px: Int, orientation: Orientation): String {
+        val sideways = orientation == Orientation.PORTRAIT || orientation == Orientation.PORTRAIT_FLIPPED
+        val mountedWidth = if (sideways) MpvScene.RES_Y else MpvScene.RES_X
+        val mountedHeight = if (sideways) MpvScene.RES_X else MpvScene.RES_Y
+        val width = (chars * px * LETTER_WIDTH + 2 * px).toInt().coerceAtMost((mountedWidth * MAX_BOX_WIDTH).toInt())
+        val height = (px * BOX_HEIGHT).toInt()
+        // Half its height: round ends, a pill like the touch page's.
+        val radius = height / 2
+        val centreX = MpvScene.RES_X / 2
+        val centreY = MpvScene.RES_Y / 2
+        val y = centreY + ((PROMPT_AT - HALF) * mountedHeight).toInt()
+        val tags = "\\an5\\pos($centreX,$y)\\org($centreX,$centreY)\\frz${-orientation.clockwiseDegrees}" +
+            "\\p1\\bord0\\shad0\\1c&H$BOX_COLOUR&\\1a&H$BOX_ALPHA&"
+        return "{$tags}${roundedBox(width, height, radius)}{\\p0}"
+    }
+
+    /**
+     * A [width] by [height] box with corners of [r], as an ASS drawing: each corner a quarter circle,
+     * its curve's handles [CIRCLE] of the radius along the edges.
+     */
+    private fun roundedBox(width: Int, height: Int, r: Int): String {
+        val k = (r * (1 - CIRCLE)).toInt()
+        val right = width - r
+        val bottom = height - r
+        return "m $r 0 l $right 0 b ${width - k} 0 $width $k $width $r l $width $bottom " +
+            "b $width ${height - k} ${width - k} $height $right $height l $r $height " +
+            "b $k $height 0 ${height - k} 0 $bottom l 0 $r b 0 $k $k 0 $r 0"
     }
 
     /** A dark sheet over everything with the screen's name on it, or null when not identifying. */
@@ -63,8 +98,6 @@ object OsdText {
         orientation: Orientation,
         bold: Boolean = false,
         alpha: String = "00",
-        /** A dark outline this thick around each letter; none when 0. */
-        edge: Int = 0,
     ): String {
         val centreX = MpvScene.RES_X / 2
         val centreY = MpvScene.RES_Y / 2
@@ -73,8 +106,7 @@ object OsdText {
         val y = centreY + ((at - HALF) * mountedHeight).toInt()
         val px = size * MpvScene.RES_Y / PER_MILLE
         val tags = "\\an5\\q2\\pos($centreX,$y)\\org($centreX,$centreY)\\frz${-orientation.clockwiseDegrees}" +
-            "\\fs$px\\b${if (bold) 1 else 0}\\bord$edge\\shad0\\1c&H$TEXT_COLOUR&\\1a&H$alpha&" +
-            if (edge > 0) "\\3c&H000000&\\3a&H$EDGE_ALPHA&" else ""
+            "\\fs$px\\b${if (bold) 1 else 0}\\bord0\\shad0\\1c&H$TEXT_COLOUR&\\1a&H$alpha&"
         return "{$tags}${escape(text)}"
     }
 
@@ -87,8 +119,16 @@ object OsdText {
     private const val IDENTIFY_SIZE = 120
     private const val PROMPT_AT = 0.88
     private const val PROMPT_SIZE = 55
-    private const val PROMPT_EDGE_DIVISOR = 8
-    private const val EDGE_ALPHA = "40"
+    private const val LETTER_WIDTH = 0.56
+    private const val MAX_BOX_WIDTH = 0.9
+    private const val BOX_HEIGHT = 1.9
+
+    /** How far a quarter circle's curve handles reach, as a share of its radius. */
+    private const val CIRCLE = 0.5523
+
+    /** The touch page's prompt box, rgba(20, 20, 24, 0.82), as ASS writes it: blue, green, red; then how clear. */
+    private const val BOX_COLOUR = "181414"
+    private const val BOX_ALPHA = "2E"
     private const val PER_MILLE = 1000
 
     /** #e8eaed, as ASS writes colours: blue, green, red. */
