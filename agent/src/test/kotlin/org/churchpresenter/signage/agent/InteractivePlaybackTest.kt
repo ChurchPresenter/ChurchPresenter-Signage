@@ -65,6 +65,13 @@ class InteractivePlaybackTest {
     }
 
     @Test
+    fun aTouchPageKeepsItsReloadTimes() {
+        install(signup.copy(refreshMs = 60_000, idleUrl = "https://photos.example.org/show", idleRefreshMs = 1_800_000))
+        val kiosk = engine().apply { tick() }.state.value.kiosk!!
+        assertEquals(60_000L to 1_800_000L, kiosk.refreshMs to kiosk.idleRefreshMs)
+    }
+
+    @Test
     fun aPlayerWithoutTheKioskShowsItsIdleCardInstead() {
         install(signup)
         val engine = engine(interactive = false).apply { tick() }
