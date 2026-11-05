@@ -249,6 +249,43 @@ class KioskSessionTest {
     }
 
     @Test
+    fun theIdlePageReloadsWhileItShowsAndATapStopsIt() = runBlocking<Unit> {
+        val browser = FakeBrowser()
+        val idle = page.copy(idleUrl = "https://welcome.example.org", idleRefreshMs = 1)
+        start(browser, state = kioskState(idle))
+        val fake = browser.next()
+        repeat(3) { assertEquals(idle.idleUrl, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content) }
+        fake.binding("""{"t":"wake"}""")
+        // Reloads still on their way may come first; then the link opens.
+        withTimeout(WAIT_MS) {
+            while (fake.await("Page.navigate")["url"]!!.jsonPrimitive.content != page.url) Unit
+        }
+    }
+
+    @Test
+    fun anUntouchedPageReloads() = runBlocking<Unit> {
+        val browser = FakeBrowser()
+        start(browser, state = kioskState(page.copy(refreshMs = 1)))
+        val fake = browser.next()
+        repeat(3) { assertEquals(page.url, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content) }
+    }
+
+    @Test
+    fun whatReloadsIsTheIdlePageWhileItShowsAndThePageUntilItIsTouched() {
+        val both = page.copy(refreshMs = 60_000, idleUrl = "https://welcome.example.org", idleRefreshMs = 600_000)
+        assertEquals(
+            Reload(600_000, "https://welcome.example.org"),
+            reloadOf(both, both.idleUrl, idle = true, touched = false),
+        )
+        assertEquals(Reload(60_000, page.url!!), reloadOf(both, both.idleUrl, idle = false, touched = false))
+        assertNull(reloadOf(both, both.idleUrl, idle = false, touched = true))
+        assertNull(reloadOf(page, null, idle = false, touched = false))
+        assertNull(reloadOf(page.copy(refreshMs = 0), null, idle = false, touched = false))
+        assertNull(reloadOf(page.copy(idleRefreshMs = 600_000), null, idle = true, touched = false))
+        assertNull(reloadOf(null, null, idle = true, touched = false))
+    }
+
+    @Test
     fun anIdlePageIsLeftAsItsSiteMadeIt() = runBlocking<Unit> {
         val browser = FakeBrowser()
         val idle = page.copy(idleUrl = "https://welcome.example.org", pageCode = PageCode(null, "go()"))

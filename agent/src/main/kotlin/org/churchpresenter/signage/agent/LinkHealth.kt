@@ -70,6 +70,7 @@ class PlayableItems(
                 allowedHosts = item.allowedHosts,
                 idlePlaylistId = item.idlePlaylistId?.takeIf { item.interactive },
                 idleUrl = item.idleUrl?.takeIf { item.interactive && it.isNotBlank() },
+                idleRefreshMs = item.idleRefreshMs?.takeIf { item.interactive },
                 idlePrompt = item.idlePrompt?.trim()?.takeIf { item.interactive && it.isNotEmpty() },
                 pageCode = PageCode.of(item.pageCss, item.pageScript).takeIf { item.kind == MediaKind.WEB },
             )

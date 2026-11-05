@@ -170,6 +170,9 @@ class KioskSession(
          */
         private val wakes = Channel<Unit>(Channel.CONFLATED)
 
+        /** Held while the idle page is woken or reloaded, so a reload never lands on the woken page. */
+        private val opening = Mutex()
+
         /** What first started the idle time, for the log. */
         @Volatile
         private var firstTouch: String? = null
@@ -204,6 +207,7 @@ class KioskSession(
             val expired = async { if (item != null) untilIdle() else awaitCancellation() }
             launch { state.map { it.pinPrompt }.distinctUntilChanged().collect { kiosk.evaluate("pinPad($it)") } }
             launch { wakes.consumeEach { wake() } }
+            launch { reloadWhileUnused() }
             select {
                 expired.onAwait { Log.info("Starting the interactive page over: ${resetReason()}") }
                 closed.onAwait {}
@@ -212,14 +216,28 @@ class KioskSession(
         }
 
         /** A tap on the idle page: the interactive page opens in its place, its idle time started. */
-        private suspend fun wake() {
+        private suspend fun wake() = opening.withLock {
             val url = item?.url
-            if (!idle || url == null) return
+            if (!idle || url == null) return@withLock
             idle = false
             touched("a tap on its idle page")
             kiosk.evaluate("idleScreen(false)")
             page.addPageCode(code)
             kiosk.open(url)
+        }
+
+        /**
+         * Opens what shows again while nobody uses it, so a slideshow picks up new pictures: the idle
+         * page every `idleRefreshMs` while it shows, the page itself every `refreshMs` until it is
+         * first touched. Stops for good once someone uses the page; its idle reset starts it over.
+         */
+        private suspend fun reloadWhileUnused() {
+            while (true) {
+                val wasIdle = idle
+                val reload = reloadOf(item, idleUrl, wasIdle, touched = firstTouch != null) ?: return
+                delay(reload.everyMs)
+                opening.withLock { if (idle == wasIdle && firstTouch == null) kiosk.open(reload.url) }
+            }
         }
 
         /** Why the page starts over, for the log: how long without a touch, what touched it first, where it was. */
@@ -298,4 +316,18 @@ class KioskSession(
         /** What the PIN pad opens over when no interactive page is on screen. */
         const val BLANK_PAGE = "data:text/html,<html><body style=\"margin:0;background:#000\"></body></html>"
     }
+}
+
+/** What a touch page reloads, and how often: [url] every [everyMs]. */
+internal data class Reload(val everyMs: Long, val url: String)
+
+/**
+ * What [item]'s screen reloads now: its idle page ([idleUrl]) while that shows, the page itself while
+ * nobody has [touched] it; nothing once someone has, or when no time is set.
+ */
+internal fun reloadOf(item: ScreenItem?, idleUrl: String?, idle: Boolean, touched: Boolean): Reload? {
+    if (item == null || touched) return null
+    val every = (if (idle) item.idleRefreshMs else item.refreshMs)?.takeIf { it > 0 } ?: return null
+    val url = (if (idle) idleUrl else item.url) ?: return null
+    return Reload(every, url)
 }

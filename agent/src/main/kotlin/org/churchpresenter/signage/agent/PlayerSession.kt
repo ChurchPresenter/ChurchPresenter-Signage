@@ -65,6 +65,7 @@ class PlayerSession(
         Features.INTERACTIVE.takeIf { interactive },
         Features.IDLE_SCREEN.takeIf { interactive },
         Features.PAGE_CODE.takeIf { web || interactive },
+        Features.TOUCH_RELOAD.takeIf { interactive },
         Features.POWER.takeIf { power != null && background != null },
         Features.TV.takeIf { tv != null && background != null },
         Features.SYSTEM_UPDATE.takeIf { updater?.updatesSystem == true && background != null },

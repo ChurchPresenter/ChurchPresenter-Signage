@@ -207,6 +207,13 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun aTouchScreenSaysItReloadsItsPagesWhileNobodyUsesThem() = runTest {
+        val features = sessionWith(interactive = true).hello().features
+        assertTrue(Features.TOUCH_RELOAD in features && Features.IDLE_SCREEN in features)
+        assertFalse(Features.TOUCH_RELOAD in sessionWith(web = true).hello().features)
+    }
+
+    @Test
     fun aWebTestRunsInTheBackgroundAndAnswers() = runTest {
         var frames = 0L
         val test = WebTest(engine, { frames }, pause = { frames += 15 }, settleMs = 0)
@@ -260,6 +267,7 @@ class PlayerSessionTest {
         background: CoroutineScope? = null,
         web: Boolean = false,
         webTest: WebTest? = null,
+        interactive: Boolean = false,
     ) = PlayerSession(
         store, engine, AgentInfo("0.1.0", Platform.LINUX_ARM64, 1920, 1080),
         sync = { ManifestSync(store, source).sync() },
@@ -270,6 +278,7 @@ class PlayerSessionTest {
         background = background,
         web = web,
         webTest = webTest,
+        interactive = interactive,
     )
 
     @Test

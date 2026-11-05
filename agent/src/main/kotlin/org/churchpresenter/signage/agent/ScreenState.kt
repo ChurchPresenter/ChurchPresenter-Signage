@@ -75,6 +75,8 @@ data class ScreenItem(
     val idlePlaylistId: String? = null,
     /** The web page an interactive page's screen shows while nobody is using it. */
     val idleUrl: String? = null,
+    /** How often [idleUrl] reloads while it shows; never when null. */
+    val idleRefreshMs: Long? = null,
     /** The line written over the idle playlist or page, so people know to touch it; none when null. */
     val idlePrompt: String? = null,
     /** The church's own CSS and JavaScript for a web page's pages; null when it has none. */

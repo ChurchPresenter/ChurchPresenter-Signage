@@ -53,7 +53,7 @@ The player's first message is `hello`. Then:
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `power`, `tv`, `system_update`,
+A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `touch_reload`, `power`, `tv`, `system_update`,
 `web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
@@ -121,6 +121,11 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
     it. `idlePrompt` is a line written over it ("Tap to sign up"), none when left out.
     ChurchPresenter sends these only to players listing `idle_screen`, and leaves all three out
     when unset.
+  - An interactive item reloads only while nobody uses it: its page every `refreshMs` until it is
+    first touched, and its `idleUrl` every `idleRefreshMs` while that shows (so a slideshow picks up
+    new pictures). Once someone uses the page neither reloads; its idle reset starts it over.
+    ChurchPresenter sends them on an interactive item only to players listing `touch_reload`, and
+    leaves them out when unset; an older player leaves both pages as they first loaded.
   - A `web` item may carry the church's own `pageCss` and `pageScript`, to restyle a site it does
     not own (hide its menu, point its Home link back at the page). On every page the item shows, in
     the top frame only, the CSS goes in after the site's own as a constructed style sheet (which the
