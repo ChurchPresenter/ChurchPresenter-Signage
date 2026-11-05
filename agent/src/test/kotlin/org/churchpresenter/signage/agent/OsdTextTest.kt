@@ -37,7 +37,7 @@ class OsdTextTest {
         val wide = OsdText.tapPrompt(ScreenState(ScreenMode.PLAYLIST, touchOpens = long)).orEmpty().lines()[0]
         // Never wider than most of the screen, however long the line.
         // 90% of 1920: the box's right edge.
-        assertTrue("b 1728 0 1728 0 " in wide, wide)
+        assertTrue(" l 1728 " in wide, wide)
         assertNull(OsdText.tapPrompt(ScreenState(ScreenMode.PLAYLIST)))
     }
 

@@ -41,7 +41,7 @@
     .cover { position: fixed; inset: 0; z-index: 2147483645; display: none; touch-action: none; }
     .cover.open { display: block; }
     .prompt { position: absolute; left: 50%; bottom: 6vh; transform: translateX(-50%); max-width: 90vw;
-              padding: 18px 36px; border-radius: 16px; background: rgba(20, 20, 24, 0.82); color: #fff;
+              padding: 18px 36px; border-radius: 999px; background: rgba(20, 20, 24, 0.82); color: #fff;
               font-size: 36px; font-weight: 600; text-align: center; }
     .prompt:empty { display: none; }
   `;
