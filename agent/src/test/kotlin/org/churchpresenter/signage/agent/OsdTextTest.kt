@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.churchpresenter.signage.core.MediaKind
 
 class OsdTextTest {
     @Test
@@ -20,6 +21,24 @@ class OsdTextTest {
         assertEquals(2, lines.size)
         assertTrue(lines[0].endsWith("}Grace Church") && "\\pos(960,497)" in lines[0], lines[0])
         assertTrue(lines[1].endsWith("}code 1234") && "\\pos(960,594)" in lines[1], lines[1])
+    }
+
+    @Test
+    fun theTapPromptSitsOnADarkBoxAsATouchPagesDoes() {
+        val page = ScreenItem(
+            null, MediaKind.WEB, null, "https://signup.example.org", interactive = true, idlePrompt = "Tap",
+        )
+        val prompt = OsdText.tapPrompt(ScreenState(ScreenMode.PLAYLIST, touchOpens = page)).orEmpty().lines()
+        assertEquals(2, prompt.size)
+        // The box first, under the words, both centred where the prompt goes.
+        assertTrue("\\p1" in prompt[0] && "\\pos(960,950)" in prompt[0] && "\\1a&H2E&" in prompt[0], prompt[0])
+        assertTrue(prompt[1].endsWith("}Tap") && "\\pos(960,950)" in prompt[1], prompt[1])
+        val long = page.copy(idlePrompt = "x".repeat(200))
+        val wide = OsdText.tapPrompt(ScreenState(ScreenMode.PLAYLIST, touchOpens = long)).orEmpty().lines()[0]
+        // Never wider than most of the screen, however long the line.
+        // 90% of 1920: the box's right edge.
+        assertTrue("b 1728 0 1728 0 " in wide, wide)
+        assertNull(OsdText.tapPrompt(ScreenState(ScreenMode.PLAYLIST)))
     }
 
     @Test

@@ -84,9 +84,9 @@ class FakeCec(private val answers: Boolean = true) : Cec {
 }
 
 /** A store in its own temp folder, paired to [OWNER]; delete [root] after the test. */
-fun pairedStore(): Pair<Path, PlayerStore> {
+fun pairedStore(freeBytes: () -> Long = { Long.MAX_VALUE }): Pair<Path, PlayerStore> {
     val root = createTempDirectory("signage-store")
-    val store = PlayerStore(root)
+    val store = PlayerStore(root) { freeBytes() }
     store.saveIdentity(store.identity().copy(token = "t", ownerId = OWNER, ownerName = "Main PC"))
     return root to store
 }
