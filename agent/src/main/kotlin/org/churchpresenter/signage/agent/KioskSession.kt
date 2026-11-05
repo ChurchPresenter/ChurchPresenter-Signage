@@ -3,6 +3,8 @@ package org.churchpresenter.signage.agent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -162,6 +164,12 @@ class KioskSession(
         @Volatile
         private var idle = idleUrl != null
 
+        /**
+         * Taps on the idle page, woken from outside the loop that answers the page: opening the link
+         * waits for its first request, which that loop has to let through.
+         */
+        private val wakes = Channel<Unit>(Channel.CONFLATED)
+
         /** What first started the idle time, for the log. */
         @Volatile
         private var firstTouch: String? = null
@@ -195,6 +203,7 @@ class KioskSession(
             // The PIN pad alone has nothing to clear: it closes with the prompt.
             val expired = async { if (item != null) untilIdle() else awaitCancellation() }
             launch { state.map { it.pinPrompt }.distinctUntilChanged().collect { kiosk.evaluate("pinPad($it)") } }
+            launch { wakes.consumeEach { wake() } }
             select {
                 expired.onAwait { Log.info("Starting the interactive page over: ${resetReason()}") }
                 closed.onAwait {}
@@ -258,7 +267,7 @@ class KioskSession(
                     if (idle) kiosk.evaluate("idleScreen(true, ${JsonPrimitive(item?.idlePrompt.orEmpty())})")
                 }
                 "act" -> touched("a press on the page")
-                "wake" -> wake()
+                "wake" -> wakes.trySend(Unit)
                 "key" -> message.string("k")?.let { kiosk.key(it) }
                 "pin" -> kiosk.evaluate("pinResult(${pins.entered(message.string("v").orEmpty())})")
                 "pinCancel" -> pins.cancelled()

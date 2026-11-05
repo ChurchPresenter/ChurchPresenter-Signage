@@ -1,5 +1,6 @@
 package org.churchpresenter.signage.agent
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -22,6 +23,8 @@ import org.churchpresenter.signage.core.Orientation
 import java.io.IOException
 import java.nio.file.Path
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempDirectory
@@ -61,13 +64,20 @@ class KioskSessionTest {
         root.deleteRecursively()
     }
 
-    /** One page: records what it is sent, and answers the frame tree and a screenshot. */
-    private class FakePage : WebRenderer.Page {
+    /**
+     * One page: records what it is sent, and answers the frame tree and a screenshot. A [held] page is
+     * Chromium with its requests paused: a navigation is answered only once the request it makes is
+     * let through or answered, as `Fetch.enable` makes it.
+     */
+    private class FakePage(private val held: Boolean = false) : WebRenderer.Page {
         override val events = Channel<WebRenderer.Event>(Channel.UNLIMITED)
         val sent = Channel<Pair<String, JsonObject>>(Channel.UNLIMITED)
+        private val paused = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        private val requests = AtomicInteger()
 
         override suspend fun call(method: String, params: JsonObject): JsonObject {
             sent.send(method to params)
+            if (held && method == "Page.navigate") navigateHeld(params["url"]!!.jsonPrimitive.content)
             return when (method) {
                 "Page.getFrameTree" -> buildJsonObject {
                     putJsonObject("frameTree") { putJsonObject("frame") { put("id", MAIN_FRAME) } }
@@ -79,6 +89,26 @@ class KioskSessionTest {
 
         override suspend fun send(method: String, params: JsonObject) {
             sent.send(method to params)
+            if (method == "Fetch.continueRequest" || method == "Fetch.fulfillRequest") {
+                paused.remove(params["requestId"]!!.jsonPrimitive.content)?.complete(Unit)
+            }
+        }
+
+        private suspend fun navigateHeld(url: String) {
+            val id = "navigation-${requests.incrementAndGet()}"
+            val answered = CompletableDeferred<Unit>()
+            paused[id] = answered
+            events.send(
+                WebRenderer.Event(
+                    "Fetch.requestPaused",
+                    buildJsonObject {
+                        put("requestId", id)
+                        put("frameId", MAIN_FRAME)
+                        putJsonObject("request") { put("url", url) }
+                    },
+                ),
+            )
+            answered.await()
         }
 
         /** The next call or send to [method], skipping others; fails after a while. */
@@ -113,7 +143,10 @@ class KioskSessionTest {
     }
 
     /** Opens a fresh page each time, after writing into the profile as Chromium would. */
-    private inner class FakeBrowser(private val failing: Boolean = false) : KioskSession.Browser {
+    private inner class FakeBrowser(
+        private val failing: Boolean = false,
+        private val held: Boolean = false,
+    ) : KioskSession.Browser {
         val pages = Channel<FakePage>(Channel.UNLIMITED)
 
         /** Whether the profile already held something when each browser started: it never should. */
@@ -128,7 +161,7 @@ class KioskSessionTest {
             profileWasEmpty += !profile.exists()
             profile.createDirectories()
             profile.resolve("History").writeText("someone's name")
-            val page = FakePage()
+            val page = FakePage(held)
             pages.send(page)
             return block(page)
         }
@@ -237,6 +270,19 @@ class KioskSessionTest {
         fake.binding("""{"t":"wake"}""")
         assertTrue("go()" in fake.await("Page.addScriptToEvaluateOnNewDocument")["source"]!!.jsonPrimitive.content)
         assertEquals(page.url, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun aTapOnTheIdlePageOpensTheLinkWhileItsRequestIsChecked() = runBlocking<Unit> {
+        val browser = FakeBrowser(held = true)
+        start(browser, state = kioskState(page.copy(idleUrl = "https://welcome.example.org")))
+        val fake = browser.next()
+        assertEquals("https://welcome.example.org", fake.await("Page.navigate")["url"]!!.jsonPrimitive.content)
+        fake.await("Fetch.continueRequest")
+        fake.binding("""{"t":"wake"}""")
+        assertEquals(page.url, fake.await("Page.navigate")["url"]!!.jsonPrimitive.content)
+        // The link's own request is let through while the tap that opened it is still being handled.
+        assertEquals("navigation-2", fake.await("Fetch.continueRequest")["requestId"]!!.jsonPrimitive.content)
     }
 
     @Test
