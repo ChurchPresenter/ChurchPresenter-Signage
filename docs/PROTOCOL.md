@@ -137,7 +137,8 @@ See `fixtures/manifest-v1.json` in `core/src/test/resources` for a complete exam
   `text`, in a dark band across the top of the screen as mounted (what plays goes on under it), or with
   `fullScreen` on a black sheet in place of it, until `untilMs` (epoch milliseconds) or, when that is
   left out, until it is cleared. It shows over a touch page too, where a full-screen one also takes
-  the touches. The player keeps it with the manifest, so it holds while ChurchPresenter is away, and
+  the touches, and a band takes them too when `blockTouch` is set (left out when false); a tap on
+  either still counts as someone there, so the page's idle reset waits. The player keeps it with the manifest, so it holds while ChurchPresenter is away, and
   drops it once `untilMs` has passed. ChurchPresenter sends it only to players listing `message`.
 - `screen.kioskPinHash`, when set, is what the screen's switch gesture (a finger held in the
   top-left corner for 5 s) asks for before it switches between the playlist and an interactive page:

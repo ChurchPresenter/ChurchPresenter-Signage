@@ -31,6 +31,7 @@
     .strip { position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647; display: none; padding: 18px;
              text-align: center; font-size: 26px; color: #fff; background: rgba(20, 20, 24, 0.92); }
     .strip.open { display: block; }
+    .strip.below { top: auto; bottom: 0; }
     .pin { position: fixed; inset: 0; z-index: 2147483647; display: none; align-items: center; justify-content: center;
            background: rgba(0, 0, 0, 0.88); }
     .pin.open { display: flex; }
@@ -51,6 +52,9 @@
     .notice.full { bottom: 0; display: none; align-items: center; justify-content: center; font-size: 7.4vh;
                    background: #000; pointer-events: auto; touch-action: none; }
     .notice.full.open { display: flex; }
+    .shield { position: fixed; inset: 0; z-index: 2147483646; display: none; touch-action: none; }
+    .shield.open { display: block; }
+    .kbtoggle.blocked { display: none; }
   `;
   root.append(style);
 
@@ -268,15 +272,26 @@
 
   // ---- ChurchPresenter's message: a band across the top, or the whole screen ----
   const notice = make('div', 'notice');
+  // Under a band that keeps touches from the page, a clear sheet over the page takes them. A tap still
+  // counts as someone there (the window's own listener sees it first), so the idle reset waits.
+  const shield = make('div', 'shield');
+  ['pointerdown', 'mousedown', 'click', 'touchstart'].forEach((type) =>
+    shield.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); }));
   ['pointerdown', 'mousedown', 'click', 'touchstart'].forEach((type) =>
     notice.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); }));
-  const showNotice = (text, full) => {
+  const showNotice = (text, full, block) => {
     notice.textContent = text || '';
     notice.classList.toggle('full', !!full);
     notice.classList.toggle('open', !!text);
+    shield.classList.toggle('open', !!text && !full && !!block);
+    // Nothing under the message can be used, the keyboard included, so its button goes too.
+    toggle.classList.toggle('blocked', !!text && (!!full || !!block));
+    // A band holds the top of the screen, so the "starting over" countdown moves to the bottom to
+    // leave the message readable; over a full-screen message it stays at the top.
+    strip.classList.toggle('below', !!text && !full);
   };
 
-  root.append(cover, toggle, kb, strip, pin, notice);
+  root.append(cover, toggle, kb, shield, strip, pin, notice);
 
   // A mouse's pointer shows while the mouse moves, and goes on a touch, after it has stood still a
   // few seconds, and on every new page (with no mouse, cage's own pointer is blank: BlankCursor).
