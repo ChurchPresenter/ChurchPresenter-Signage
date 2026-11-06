@@ -11,6 +11,13 @@ TV's input to ChurchPresenter or your video mixer as usual.
 > **Status:** in development. In ChurchPresenter it is the **Signage** tab: show it from the tab bar's
 > menu.
 
+## Android TV
+
+A TV running Android TV or Google TV needs no box behind it: install the ChurchPresenter mobile app on
+the TV and choose **Signage**. It shows a pairing code, and pairs and plays like any other screen.
+It plays pictures, videos and streams, but not web pages, and it cannot turn the TV on and off: use the
+TV's own timer. It updates through its app store, not through **Update** on the screen's card.
+
 ## Install
 
 Each command downloads the latest release, checks it, and sets the screen up to start by itself. At
