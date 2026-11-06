@@ -25,7 +25,7 @@ All answer `403 "dev mode only"` when dev mode is off. All but the WebSocket's p
 | `GET /api/signage/ws` (WebSocket) | The control channel, below |
 | `GET /api/signage/manifest` | This player's `Manifest`; its version in the `ETag` header |
 | `GET /api/signage/files/{sha256}` | A file by hash; `404` for one not in this player's manifest |
-| `GET /api/signage/agent/{platform}` | The agent build ChurchPresenter offers for `linux_arm64`, `linux_x64` or `windows_x64`, as downloaded from the release |
+| `GET /api/signage/agent/{platform}` | The agent build ChurchPresenter offers for `linux_arm64`, `linux_x64` or `windows_x64`, as downloaded from the release. `android_tv` players update through their app store and have none |
 
 ## The control channel
 The player's first message is `hello`. Then:
