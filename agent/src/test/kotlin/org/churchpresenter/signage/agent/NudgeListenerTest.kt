@@ -8,6 +8,7 @@ import kotlinx.coroutines.withTimeout
 import org.churchpresenter.signage.core.Nudge
 import org.churchpresenter.signage.core.SignageJson
 import org.churchpresenter.signage.core.nudgeOwner
+import org.churchpresenter.signage.core.nudgePlayer
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -46,8 +47,25 @@ class NudgeListenerTest {
     }
 
     @Test
-    fun `an unpaired screen acts on no knock`() {
+    fun `an unpaired screen acts on no owner's knock`() {
         assertNull(NudgeListener(ownerId = { null }, onNudge = {}).addressOf(nudge("owner-1", 8765)))
+    }
+
+    private fun invite(player: String) = packet(
+        SignageJson.encodeToString(Nudge.serializer(), Nudge(nudgeOwner("owner-2"), 8765, nudgePlayer(player))),
+    )
+
+    @Test
+    fun `an unpaired screen acts on a knock asking it by its own id`() {
+        val unpaired = NudgeListener(ownerId = { null }, onNudge = {}, playerId = { "player-1" })
+        assertEquals("192.168.2.52:8765", unpaired.addressOf(invite("player-1")))
+        assertNull(unpaired.addressOf(invite("player-2")), "another player's")
+    }
+
+    @Test
+    fun `a paired screen ignores another ChurchPresenter asking for it by id`() {
+        val paired = NudgeListener(ownerId = { "owner-1" }, onNudge = {}, playerId = { "player-1" })
+        assertNull(paired.addressOf(invite("player-1")))
     }
 
     @Test

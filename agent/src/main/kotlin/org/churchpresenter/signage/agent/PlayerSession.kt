@@ -302,6 +302,7 @@ class PlayerSession(
 
     private fun release() {
         Log.info("Released by ${store.identity().ownerName}; waiting to be paired again")
+        serverAddress = null
         store.saveIdentity(store.identity().released())
         store.clearContent()
         engine.reloadFromStore()

@@ -7,6 +7,7 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -19,6 +20,7 @@ import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.ServerMessage
 import org.churchpresenter.signage.core.SignageJson
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Keeps one WebSocket open to ChurchPresenter whenever it is reachable, and gives up gracefully when
@@ -37,13 +39,29 @@ class ServerConnection(
     private var nudgedAddress: String? = null
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    /** Knocks that arrived while connected; only an unpaired player waiting elsewhere acts on one. */
+    private val invites = Channel<Unit>(Channel.CONFLATED)
+
     /**
-     * This screen's owner knocked from [address]: the next attempt starts now, there first. Ignored
-     * while connected, since nothing waits then.
+     * This screen's owner knocked from [address], or, while unpaired, a ChurchPresenter asked this
+     * player to come and pair there: the next attempt starts now, there first. A paired player that is
+     * connected ignores it, since nothing waits then; an unpaired one waiting on another
+     * ChurchPresenter leaves it and goes.
      */
     fun nudged(address: String) {
         nudgedAddress = address
         wake.trySend(Unit)
+        invites.trySend(Unit)
+    }
+
+    /** Returns once a knock asks this unpaired player to go somewhere other than [current]. */
+    private suspend fun awaitInviteAwayFrom(current: String) {
+        while (true) {
+            invites.receive()
+            val to = nudgedAddress ?: continue
+            if (to != current) return
+            nudgedAddress = null
+        }
     }
 
     suspend fun run() {
@@ -117,6 +135,9 @@ class ServerConnection(
     private suspend fun connect(address: String, trusted: Boolean): SessionNext {
         var next = SessionNext.STAY
         val token = store.identity().token
+        // A knock from before this connection was for the attempt that led here.
+        invites.tryReceive()
+        val switched = AtomicBoolean(false)
         try {
             client.webSocket(urlString = "ws://$address/api/signage/ws", request = { token?.let(::bearerAuth) }) {
                 store.saveIdentity(store.identity().copy(lastAddress = address))
@@ -135,14 +156,27 @@ class ServerConnection(
                         send(Frame.Text(SignageJson.encodeToString(PlayerMessage.serializer(), message)))
                     }
                 }
+                val switcher = if (token == null) {
+                    launch {
+                        awaitInviteAwayFrom(address)
+                        Log.info("Asked to pair with another ChurchPresenter; leaving $address")
+                        switched.set(true)
+                        close(CloseReason(CloseReason.Codes.NORMAL, "pairing elsewhere"))
+                    }
+                } else {
+                    null
+                }
                 for (frame in incoming) {
                     val message = (frame as? Frame.Text)?.let(::decode)
                     if (message != null) next = session.handle(message)
                     if (next != SessionNext.STAY) break
                 }
-                if (next == SessionNext.STAY && closeReason.await()?.code == CloseReason.Codes.TRY_AGAIN_LATER.code) {
-                    next = SessionNext.DECLINED
+                next = when {
+                    switched.get() -> SessionNext.RECONNECT
+                    next == SessionNext.STAY && closeReason.await()?.code == TRY_AGAIN_LATER -> SessionNext.DECLINED
+                    else -> next
                 }
+                switcher?.cancel()
                 reporter.cancel()
                 forwarder.cancel()
             }
@@ -173,5 +207,8 @@ class ServerConnection(
         /** The pause after a ChurchPresenter that speaks another protocol, which will not change soon. */
         const val UNSUPPORTED_WAIT_MS = 60_000L
         const val STATUS_EVERY_MS = 60_000L
+
+        /** The close a ChurchPresenter holding this screen back sends. */
+        val TRY_AGAIN_LATER = CloseReason.Codes.TRY_AGAIN_LATER.code
     }
 }

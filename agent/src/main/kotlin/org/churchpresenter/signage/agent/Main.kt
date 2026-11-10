@@ -110,7 +110,7 @@ fun main(args: Array<String>) {
         launch { engine.run() }
         val connection = ServerConnection(client, store, MdnsServerLocator(), session) { address = it }
         launch { connection.run() }
-        launch { NudgeListener(ownerId = { store.identity().ownerId }, onNudge = connection::nudged).run() }
+        launch { knocksFor(store, connection).run() }
         launch { player.run() }
         web?.let { launch { it.renderer.run(engine.state) } }
         kiosk?.let { launch { it.run() } }

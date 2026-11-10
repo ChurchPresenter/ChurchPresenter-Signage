@@ -103,6 +103,28 @@ class ServerConnectionTest {
         assertEquals(listOf("b"), log.toList())
     }
 
+    @Test
+    fun aPlayerWaitingOnOneChurchPresenterGoesWhenAnotherAsksForIt() = runBlocking {
+        store.saveIdentity(store.identity().released())
+        val log = Collections.synchronizedList(mutableListOf<String>())
+        val a = Instance("a", declines = false, log)
+        val b = Instance("b", declines = false, log)
+        val scope = CoroutineScope(Dispatchers.IO)
+        HttpClient(CIO) { install(WebSockets) }.use { client ->
+            val connection = ServerConnection(client, store, locator(b.address), session)
+            val job = scope.launch { connection.run() }
+            try {
+                withTimeout(WAIT_MS) { b.greeted.await() }
+                connection.nudged(a.address)
+                withTimeout(WAIT_MS) { a.greeted.await() }
+            } finally {
+                job.cancel()
+                scope.cancel()
+            }
+        }
+        assertEquals(listOf("b", "a"), log.toList())
+    }
+
     private fun locator(vararg addresses: String) = ServerLocator { addresses.toList() }
 
     private companion object {

@@ -16,6 +16,12 @@ every minute after. A player acts only on its own owner's knock, and only by con
 the sender's address and that port, which it does not trust to release it; its token is checked
 there as on any connection. Knocks need no multicast, so they reach a screen on Wi-Fi.
 
+A knock may also carry `"player": <nudgePlayer(playerId)>`: "come and pair here", sent every 10 s
+for 2 minutes after someone presses Pair here on a screen that ChurchPresenter removed and is holding
+back. Only an unpaired player whose id it names acts on it. If it is waiting for approval on another
+ChurchPresenter, it leaves that one and connects to the sender, where pairing still needs approval with
+its code. A paired player ignores it, and an older player drops it as another owner's knock.
+
 ## Endpoints (ChurchPresenter's companion server)
 All answer `403 "dev mode only"` when dev mode is off. All but the WebSocket's pairing need
 `Authorization: Bearer <token>`.
