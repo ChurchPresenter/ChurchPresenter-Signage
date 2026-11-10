@@ -107,6 +107,37 @@ class PlayerSessionTest {
     }
 
     @Test
+    fun aFactoryResetForgetsTheOwnerContentAndLastAddressButKeepsTheId() = runTest {
+        session.onConnected()
+        val id = store.identity().playerId
+        store.saveIdentity(
+            store.identity().copy(
+                token = "t",
+                ownerId = OWNER,
+                lastAddress = "10.0.0.2:8765",
+                fixedAddress = "10.0.0.1:8765",
+            ),
+        )
+        store.saveOverride(ScreenOverride(OverrideAction.TvOff, setAtMs = 1))
+        assertEquals(SessionNext.RECONNECT, session.handle(ServerMessage.FactoryReset))
+        val identity = store.identity()
+        assertFalse(identity.isPaired)
+        assertEquals(id, identity.playerId)
+        assertNull(identity.lastAddress)
+        assertEquals("10.0.0.1:8765", identity.fixedAddress)
+        assertNull(store.manifest())
+        assertNull(store.override())
+        assertTrue(Features.FACTORY_RESET in session.features)
+    }
+
+    @Test
+    fun theWaitingMessageNamesTheComputerItWaitsOn() {
+        session.serverAddress = "10.0.0.9:8765"
+        assertTrue("at 10.0.0.9:8765" in session.pairingMessage())
+        assertTrue(session.pairingCode in session.pairingMessage())
+    }
+
+    @Test
     fun aRevokedTokenReleasesToo() {
         session.onUnauthorized()
         assertFalse(store.identity().isPaired)
@@ -290,6 +321,12 @@ class PlayerSessionTest {
 
     private companion object {
         /** What every player lists. */
-        val BASICS = arrayOf(Features.WIPE, Features.STREAM, Features.ROTATION, Features.MESSAGE)
+        val BASICS = arrayOf(
+            Features.WIPE,
+            Features.FACTORY_RESET,
+            Features.STREAM,
+            Features.ROTATION,
+            Features.MESSAGE,
+        )
     }
 }

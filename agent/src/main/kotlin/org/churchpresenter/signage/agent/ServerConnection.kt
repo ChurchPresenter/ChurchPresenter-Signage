@@ -5,7 +5,9 @@ import io.ktor.client.plugins.websocket.WebSocketException
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
 import io.ktor.http.HttpStatusCode
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -18,6 +20,7 @@ import org.churchpresenter.signage.core.PlayerMessage
 import org.churchpresenter.signage.core.ServerMessage
 import org.churchpresenter.signage.core.SignageJson
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Keeps one WebSocket open to ChurchPresenter whenever it is reachable, and gives up gracefully when
@@ -36,13 +39,29 @@ class ServerConnection(
     private var nudgedAddress: String? = null
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    /** Knocks that arrived while connected; only an unpaired player waiting elsewhere acts on one. */
+    private val invites = Channel<Unit>(Channel.CONFLATED)
+
     /**
-     * This screen's owner knocked from [address]: the next attempt starts now, there first. Ignored
-     * while connected, since nothing waits then.
+     * This screen's owner knocked from [address], or, while unpaired, a ChurchPresenter asked this
+     * player to come and pair there: the next attempt starts now, there first. A paired player that is
+     * connected ignores it, since nothing waits then; an unpaired one waiting on another
+     * ChurchPresenter leaves it and goes.
      */
     fun nudged(address: String) {
         nudgedAddress = address
         wake.trySend(Unit)
+        invites.trySend(Unit)
+    }
+
+    /** Returns once a knock asks this unpaired player to go somewhere other than [current]. */
+    private suspend fun awaitInviteAwayFrom(current: String) {
+        while (true) {
+            invites.receive()
+            val to = nudgedAddress ?: continue
+            if (to != current) return
+            nudgedAddress = null
+        }
     }
 
     suspend fun run() {
@@ -52,7 +71,7 @@ class ServerConnection(
             backoff = when (next) {
                 SessionNext.RECONNECT -> MIN_BACKOFF_MS
                 SessionNext.WAIT_LONG -> UNSUPPORTED_WAIT_MS
-                SessionNext.STAY, null -> (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+                SessionNext.STAY, SessionNext.DECLINED, null -> (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
             }
             // A nudge that came while connected is stale: only one that comes while waiting counts.
             wake.tryReceive()
@@ -67,18 +86,38 @@ class ServerConnection(
      * screen and must not make it forget its owner.
      */
     private suspend fun connectToAny(): SessionNext? {
-        val known = locator.known(store.identity())
+        val identity = store.identity()
+        val known = locator.known(identity)
         val nudged = nudgedAddress?.also { nudgedAddress = null }
         val first = listOfNotNull(nudged?.takeIf { it !in known })
-        tryEach(first, trusted = false)?.let { return it }
-        tryEach(known, trusted = true)?.let { return it }
-        return tryEach(locator.browse() - known.toSet() - first.toSet(), trusted = false)
+        if (identity.token == null) return connectUnpaired(identity, first)
+        return tryEach(first, trusted = false)
+            ?: tryEach(known, trusted = true)
+            ?: tryEach(locator.browse() - known.toSet() - first.toSet(), trusted = false)
+    }
+
+    /**
+     * A player with no owner has no one to go back to: it tries an address it was given at install,
+     * then every ChurchPresenter that advertises, and the one it last used only after those, so a
+     * screen removed from one ChurchPresenter is found by another.
+     */
+    private suspend fun connectUnpaired(identity: PlayerIdentity, first: List<String>): SessionNext? {
+        val pinned = listOfNotNull(identity.fixedAddress)
+        val last = listOfNotNull(identity.lastAddress)
+        return tryEach(first + pinned, trusted = false)
+            ?: tryEach(locator.browse() - first.toSet() - pinned.toSet() - last.toSet(), trusted = false)
+            ?: tryEach(last - pinned.toSet(), trusted = false)
     }
 
     private suspend fun tryEach(addresses: List<String>, trusted: Boolean): SessionNext? {
         for (address in addresses) {
             try {
-                return connect(address, trusted)
+                val next = connect(address, trusted)
+                if (next == SessionNext.DECLINED) {
+                    Log.info("ChurchPresenter at $address is holding this screen back; trying another")
+                    continue
+                }
+                return next
             } catch (e: CancellationException) {
                 // Only this loop being stopped ends it. The socket cancelling itself (a ping that
                 // got no answer) is a connection that ended, and is tried again like any other.
@@ -96,9 +135,13 @@ class ServerConnection(
     private suspend fun connect(address: String, trusted: Boolean): SessionNext {
         var next = SessionNext.STAY
         val token = store.identity().token
+        // A knock from before this connection was for the attempt that led here.
+        invites.tryReceive()
+        val switched = AtomicBoolean(false)
         try {
             client.webSocket(urlString = "ws://$address/api/signage/ws", request = { token?.let(::bearerAuth) }) {
                 store.saveIdentity(store.identity().copy(lastAddress = address))
+                session.serverAddress = address
                 onAddress(address)
                 send(Frame.Text(SignageJson.encodeToString(PlayerMessage.serializer(), session.hello())))
                 session.onConnected()
@@ -113,11 +156,27 @@ class ServerConnection(
                         send(Frame.Text(SignageJson.encodeToString(PlayerMessage.serializer(), message)))
                     }
                 }
+                val switcher = if (token == null) {
+                    launch {
+                        awaitInviteAwayFrom(address)
+                        Log.info("Asked to pair with another ChurchPresenter; leaving $address")
+                        switched.set(true)
+                        close(CloseReason(CloseReason.Codes.NORMAL, "pairing elsewhere"))
+                    }
+                } else {
+                    null
+                }
                 for (frame in incoming) {
                     val message = (frame as? Frame.Text)?.let(::decode)
                     if (message != null) next = session.handle(message)
                     if (next != SessionNext.STAY) break
                 }
+                next = when {
+                    switched.get() -> SessionNext.RECONNECT
+                    next == SessionNext.STAY && closeReason.await()?.code == TRY_AGAIN_LATER -> SessionNext.DECLINED
+                    else -> next
+                }
+                switcher?.cancel()
                 reporter.cancel()
                 forwarder.cancel()
             }
@@ -148,5 +207,8 @@ class ServerConnection(
         /** The pause after a ChurchPresenter that speaks another protocol, which will not change soon. */
         const val UNSUPPORTED_WAIT_MS = 60_000L
         const val STATUS_EVERY_MS = 60_000L
+
+        /** The close a ChurchPresenter holding this screen back sends. */
+        val TRY_AGAIN_LATER = CloseReason.Codes.TRY_AGAIN_LATER.code
     }
 }

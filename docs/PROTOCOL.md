@@ -16,6 +16,12 @@ every minute after. A player acts only on its own owner's knock, and only by con
 the sender's address and that port, which it does not trust to release it; its token is checked
 there as on any connection. Knocks need no multicast, so they reach a screen on Wi-Fi.
 
+A knock may also carry `"player": <nudgePlayer(playerId)>`: "come and pair here", sent every 10 s
+for 2 minutes after someone presses Pair here on a screen that ChurchPresenter removed and is holding
+back. Only an unpaired player whose id it names acts on it. If it is waiting for approval on another
+ChurchPresenter, it leaves that one and connects to the sender, where pairing still needs approval with
+its code. A paired player ignores it, and an older player drops it as another owner's knock.
+
 ## Endpoints (ChurchPresenter's companion server)
 All answer `403 "dev mode only"` when dev mode is off. All but the WebSocket's pairing need
 `Authorization: Bearer <token>`.
@@ -46,6 +52,7 @@ The player's first message is `hello`. Then:
 | server | `override` | a manual switch, or `null` to release it |
 | server | `identify` | show the screen's name for a few seconds |
 | server | `refresh` | restart what draws the screen (mpv) |
+| server | `factory_reset` | the owner removed this screen: delete everything stored, forget the owner, token and last address, and look for a ChurchPresenter again as a new screen; the player id is kept. Players without the `factory_reset` feature are sent `released` |
 | server | `wipe` | delete everything stored (content, manifests, a manual switch) and fetch the manifest again; stays paired |
 | server | `tv` | `on`: turn the TV on (`true`) or to standby now over HDMI-CEC, without changing what plays; the schedule's next change sets it again |
 | server | `power` | `action`: `restart` or `shut_down` the player's machine. A shut-down screen stays off until its power is turned off and on |
@@ -53,7 +60,7 @@ The player's first message is `hello`. Then:
 | server | `web_test` | show the built-in moving test page at each of `fps` (15 and 30) for `secondsEach` (20) seconds, then go back and answer `web_test_result` |
 | server | `update_available` | an agent build: version, protocol range, hash, path, and the signed release index (`release`, `releaseSignature`) |
 
-A player lists what it can do in its hello's `features` (`wipe`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `touch_reload`, `message`, `power`, `tv`, `system_update`,
+A player lists what it can do in its hello's `features` (`wipe`, `factory_reset`, `preview`, `update`, `stream`, `web`, `interactive`, `idle_screen`, `page_code`, `touch_reload`, `message`, `power`, `tv`, `system_update`,
 `web_test`, `rotation`); ChurchPresenter sends `wipe`, `power`, `preview_request`, `update_available` and `web_test` only to
 players that list them,
 and a `stream` or `web` item only to a player that lists that kind. Both sides ignore message
@@ -74,6 +81,13 @@ repo secret `SIGNAGE_SIGNING_KEY`. Both ChurchPresenter and the player carry the
   its platform and speaks its protocol, and that the download hashes to the index's entry. Then it
   unpacks it beside the running version, switches, and restarts; a version that does not become
   healthy within three starts is rolled back, and the player says so with `update_progress`.
+
+## Pairing and holds
+An unpaired player looks for a ChurchPresenter first at an address given at install, then at every one
+that advertises, and last at the one it used before. A ChurchPresenter that removed a screen holds its
+player id back for a few minutes and closes its connection with WebSocket code `1013` (try again later)
+before any `pairing_pending`. The player moves on to the next ChurchPresenter in the same pass, so a
+removed screen can be picked up by another computer. It tries the declining one again on its next round.
 
 ## Ownership
 A player stores the owner id it was paired with and refuses a manifest with any other `ownerId`.

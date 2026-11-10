@@ -21,5 +21,6 @@ data class PlayerIdentity(
 ) {
     val isPaired: Boolean get() = token != null && ownerId != null
 
-    fun released(): PlayerIdentity = copy(token = null, ownerId = null, ownerName = null, ownerProtocol = null)
+    fun released(): PlayerIdentity =
+        copy(token = null, ownerId = null, ownerName = null, ownerProtocol = null, lastAddress = null)
 }
