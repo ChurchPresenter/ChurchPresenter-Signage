@@ -5,6 +5,7 @@ import io.ktor.client.plugins.websocket.WebSocketException
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
 import io.ktor.http.HttpStatusCode
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
@@ -52,7 +53,7 @@ class ServerConnection(
             backoff = when (next) {
                 SessionNext.RECONNECT -> MIN_BACKOFF_MS
                 SessionNext.WAIT_LONG -> UNSUPPORTED_WAIT_MS
-                SessionNext.STAY, null -> (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+                SessionNext.STAY, SessionNext.DECLINED, null -> (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
             }
             // A nudge that came while connected is stale: only one that comes while waiting counts.
             wake.tryReceive()
@@ -67,18 +68,38 @@ class ServerConnection(
      * screen and must not make it forget its owner.
      */
     private suspend fun connectToAny(): SessionNext? {
-        val known = locator.known(store.identity())
+        val identity = store.identity()
+        val known = locator.known(identity)
         val nudged = nudgedAddress?.also { nudgedAddress = null }
         val first = listOfNotNull(nudged?.takeIf { it !in known })
-        tryEach(first, trusted = false)?.let { return it }
-        tryEach(known, trusted = true)?.let { return it }
-        return tryEach(locator.browse() - known.toSet() - first.toSet(), trusted = false)
+        if (identity.token == null) return connectUnpaired(identity, first)
+        return tryEach(first, trusted = false)
+            ?: tryEach(known, trusted = true)
+            ?: tryEach(locator.browse() - known.toSet() - first.toSet(), trusted = false)
+    }
+
+    /**
+     * A player with no owner has no one to go back to: it tries an address it was given at install,
+     * then every ChurchPresenter that advertises, and the one it last used only after those, so a
+     * screen removed from one ChurchPresenter is found by another.
+     */
+    private suspend fun connectUnpaired(identity: PlayerIdentity, first: List<String>): SessionNext? {
+        val pinned = listOfNotNull(identity.fixedAddress)
+        val last = listOfNotNull(identity.lastAddress)
+        return tryEach(first + pinned, trusted = false)
+            ?: tryEach(locator.browse() - first.toSet() - pinned.toSet() - last.toSet(), trusted = false)
+            ?: tryEach(last - pinned.toSet(), trusted = false)
     }
 
     private suspend fun tryEach(addresses: List<String>, trusted: Boolean): SessionNext? {
         for (address in addresses) {
             try {
-                return connect(address, trusted)
+                val next = connect(address, trusted)
+                if (next == SessionNext.DECLINED) {
+                    Log.info("ChurchPresenter at $address is holding this screen back; trying another")
+                    continue
+                }
+                return next
             } catch (e: CancellationException) {
                 // Only this loop being stopped ends it. The socket cancelling itself (a ping that
                 // got no answer) is a connection that ended, and is tried again like any other.
@@ -99,6 +120,7 @@ class ServerConnection(
         try {
             client.webSocket(urlString = "ws://$address/api/signage/ws", request = { token?.let(::bearerAuth) }) {
                 store.saveIdentity(store.identity().copy(lastAddress = address))
+                session.serverAddress = address
                 onAddress(address)
                 send(Frame.Text(SignageJson.encodeToString(PlayerMessage.serializer(), session.hello())))
                 session.onConnected()
@@ -117,6 +139,9 @@ class ServerConnection(
                     val message = (frame as? Frame.Text)?.let(::decode)
                     if (message != null) next = session.handle(message)
                     if (next != SessionNext.STAY) break
+                }
+                if (next == SessionNext.STAY && closeReason.await()?.code == CloseReason.Codes.TRY_AGAIN_LATER.code) {
+                    next = SessionNext.DECLINED
                 }
                 reporter.cancel()
                 forwarder.cancel()

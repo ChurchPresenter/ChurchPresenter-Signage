@@ -18,7 +18,14 @@ import kotlin.random.Random
 data class AgentInfo(val version: String, val platform: Platform, val screenWidth: Int, val screenHeight: Int)
 
 /** What the connection does after a message is handled. */
-enum class SessionNext { STAY, RECONNECT, WAIT_LONG }
+enum class SessionNext {
+    STAY,
+    RECONNECT,
+    WAIT_LONG,
+
+    /** The ChurchPresenter closed the connection with 1013: it is holding this screen back, so try another. */
+    DECLINED,
+}
 
 /**
  * What a player does with each message from ChurchPresenter, apart from the socket itself, so it can
@@ -59,6 +66,7 @@ class PlayerSession(
     /** What this player can do beyond the basics, as its hello lists it. */
     val features: List<String> = listOfNotNull(
         Features.WIPE,
+        Features.FACTORY_RESET,
         Features.STREAM,
         Features.ROTATION,
         Features.MESSAGE,
@@ -133,7 +141,7 @@ class PlayerSession(
             engine.setMessage(REJECTED_MESSAGE)
             SessionNext.WAIT_LONG
         }
-        ServerMessage.Released -> {
+        ServerMessage.Released, ServerMessage.FactoryReset -> {
             release()
             SessionNext.RECONNECT
         }
@@ -261,7 +269,14 @@ class PlayerSession(
         )
     }
 
-    fun pairingMessage(): String = "Waiting for approval in ChurchPresenter — code $pairingCode"
+    /** The `host:port` of the ChurchPresenter this player last connected to; named while it waits for approval. */
+    @Volatile
+    var serverAddress: String? = null
+
+    fun pairingMessage(): String {
+        val where = serverAddress?.let { " at $it" }.orEmpty()
+        return "Waiting for approval in ChurchPresenter$where — code $pairingCode"
+    }
 
     private var lastSyncMs: Long? = null
     private var lastError: String? = null

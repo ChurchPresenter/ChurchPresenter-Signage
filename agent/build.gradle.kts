@@ -68,6 +68,8 @@ dependencies {
     implementation(libs.sentry)
     runtimeOnly(libs.slf4j.simple)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.ktor.server.cio)
+    testImplementation(libs.ktor.server.websockets)
     testImplementation(libs.kotlinx.coroutines.test)
     detektPlugins(libs.detekt.formatting)
 }
